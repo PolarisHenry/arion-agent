@@ -1,0 +1,37 @@
+# ============================================
+# Worker Dockerfile — standalone Node process
+# ============================================
+
+ARG NODE_VERSION=22-slim
+
+FROM node:${NODE_VERSION} AS runner
+
+WORKDIR /app
+
+# curl: @larksuite/cli downloads its binary at runtime.
+# dbus / dbus-x11 / gnome-keyring / libsecret-1-0: lark-cli stores the app
+# secret in the OS keychain (Secret Service over D-Bus). A headless container
+# has none by default, so without these the secret can't be stored/retrieved
+# and every auth call fails with "missing client_secret".
+RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
+    curl ca-certificates dbus dbus-x11 gnome-keyring libsecret-1-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g pnpm@10.33.2 tsx
+
+COPY package.json pnpm-lock.yaml* .npmrc ./
+
+ENV CI=true
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+
+# Install lark-cli binary (requires curl)
+RUN node ./node_modules/@larksuite/cli/scripts/install.js
+
+COPY docker/worker-entrypoint.sh /worker-entrypoint.sh
+RUN chmod +x /worker-entrypoint.sh
+
+COPY . .
+
+# entrypoint starts D-Bus + gnome-keyring (lark-cli keychain), then execs CMD.
+ENTRYPOINT ["/worker-entrypoint.sh"]
+CMD ["tsx", "src/worker/index.ts"]
