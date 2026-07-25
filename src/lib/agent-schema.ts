@@ -90,7 +90,8 @@ export const agentRelations = relations(agent, ({ one, many }) => ({
     references: [llmModel.id]
   }),
   userAuth: many(agentUserAuth),
-  retryQueue: many(agentRetryQueue)
+  retryQueue: many(agentRetryQueue),
+  memory: many(agentMemory)
 }));
 
 // ============================================================
@@ -121,6 +122,43 @@ export const agentSession = pgTable(
     index('agent_session_agentId_idx').on(table.agentId),
     index('agent_session_chatId_idx').on(table.chatId),
     uniqueIndex('agent_session_agentId_chatId_uidx').on(table.agentId, table.chatId)
+  ]
+);
+
+// ============================================================
+// Agent Memory — long-term KV facts per agent (survives /clear)
+// ------------------------------------------------------------
+// Explicit, agent-written facts (resource locations, IDs,
+// preferences, recurring contacts) injected into the system prompt
+// every turn. Separate from agent_session so /clear (which wipes
+// session messages) does NOT touch it. Per-agent scoped — the agent
+// binds to a single user identity, so per-agent ≈ "the owner's facts".
+// UNIQUE(agent_id, key) makes `save` an upsert (dedup by key).
+// ============================================================
+
+export const agentMemory = pgTable(
+  'agent_memory',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id').notNull(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agent.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    value: text('value').notNull(),
+    label: text('label'),
+    category: text('category'),
+    note: text('note'),
+    createdAt: timestamp('created_at', { mode: 'date', precision: 3 }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', precision: 3 })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull()
+  },
+  (table) => [
+    index('agent_memory_agentId_idx').on(table.agentId),
+    index('agent_memory_ownerId_idx').on(table.ownerId),
+    uniqueIndex('agent_memory_agentId_key_uidx').on(table.agentId, table.key)
   ]
 );
 
@@ -290,6 +328,13 @@ export const agentUserAuthRelations = relations(agentUserAuth, ({ one }) => ({
 export const agentRetryQueueRelations = relations(agentRetryQueue, ({ one }) => ({
   agent: one(agent, {
     fields: [agentRetryQueue.agentId],
+    references: [agent.id]
+  })
+}));
+
+export const agentMemoryRelations = relations(agentMemory, ({ one }) => ({
+  agent: one(agent, {
+    fields: [agentMemory.agentId],
     references: [agent.id]
   })
 }));

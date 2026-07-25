@@ -29,6 +29,13 @@
       "when": 1784971063789,
       "tag": "0003_pink_speed_demon",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784981735617,
+      "tag": "0004_workable_black_panther",
+      "breakpoints": true
     }
   ]
 }
