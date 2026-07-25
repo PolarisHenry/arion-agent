@@ -89,6 +89,7 @@ function AppCreationFlow({ state, onStart, onCancel, onRecreate }: AppCreationFl
         <p className='text-muted-foreground text-center text-sm'>
           {t('Open the link or scan the QR code in Feishu/Lark to create the app.')}
         </p>
+        {/* eslint-disable-next-line @next/next/no-img-element -- QR served from a dynamic local API endpoint; next/image optimization would blur the scannable code */}
         <img
           src={`/api/agents/register-app/qr?url=${encodeURIComponent(state.verificationUrl)}`}
           alt='QR Code'

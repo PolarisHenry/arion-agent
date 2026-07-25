@@ -754,6 +754,28 @@ export const translations = {
     'LLM model deleted successfully': 'LLM model deleted successfully.',
     'Leave blank to keep current key': 'Leave blank to keep the current key.',
     'e.g. DeepSeek Production': 'e.g. DeepSeek Production',
+    'Select model': 'Select model',
+    'Search models': 'Search models',
+    Loading: 'Loading…',
+    Refresh: 'Refresh',
+    'No models found': 'No models found',
+    'No models returned': 'The provider returned no models.',
+    'Auto-fetched from provider': 'Fetched from the provider /models endpoint.',
+    'Enter API Key to fetch models': 'Enter an API Key first to fetch models.',
+    'Click the list icon to pick, or type manually':
+      'Click the list icon to pick, or type the model name manually.',
+    'Loop token budget': 'Loop token budget',
+    'Default (auto)': 'Default (auto)',
+    'Loop token budget hint':
+      'Optional. Overrides the per-task cumulative token budget (cost cap). Leave blank for the default (or the 1M tier when 1M is enabled).',
+    'Enable 1M context': 'Enable 1M context',
+    '1M context hint':
+      'Appends [1m] to the model name so the provider enables the 1M context window, and grants a larger per-task token budget.',
+    Generation: 'Generation',
+    Limits: 'Limits',
+    'Temperature hint':
+      'Higher = more creative/random; lower = more deterministic. 0.7 works for most cases.',
+    'Max Tokens hint': 'Max length of a single reply. Usually leave at the default.',
 
     // Agents page
     'Manage digital employees': 'Manage Feishu digital employees (agents).',
@@ -1619,6 +1641,26 @@ export const translations = {
     'LLM model deleted successfully': 'LLM 模型删除成功。',
     'Leave blank to keep current key': '留空则保留当前 Key。',
     'e.g. DeepSeek Production': '例如：DeepSeek 生产环境',
+    'Select model': '选择模型',
+    'Search models': '搜索模型',
+    Loading: '加载中…',
+    Refresh: '刷新',
+    'No models found': '未找到模型',
+    'No models returned': '供应商未返回模型。',
+    'Auto-fetched from provider': '已从供应商 /models 接口拉取。',
+    'Enter API Key to fetch models': '请先填写 API Key 再拉取模型。',
+    'Click the list icon to pick, or type manually': '点击右侧图标选择，或手动输入模型名。',
+    'Loop token budget': '循环 Token 预算',
+    'Default (auto)': '默认（自动）',
+    'Loop token budget hint':
+      '可选。覆盖单任务累计 Token 预算（成本上限）。留空使用默认值（启用 1M 时自动用 1M 档）。',
+    'Enable 1M context': '启用 1M 上下文',
+    '1M context hint':
+      '在模型名后加 [1m] 后缀让供应商开启 1M 上下文窗口，并提高单任务 Token 预算。',
+    Generation: '生成参数',
+    Limits: '用量上限',
+    'Temperature hint': '越高越有创意/随机，越低越稳定。一般 0.7 即可。',
+    'Max Tokens hint': '单次回复的最大输出长度。一般保持默认即可。',
 
     // Agents page
     'Manage digital employees': '管理飞书数字员工。',

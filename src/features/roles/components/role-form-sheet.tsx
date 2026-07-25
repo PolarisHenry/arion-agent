@@ -186,6 +186,7 @@ export function RoleFormSheetTrigger() {
       <Button onClick={() => setOpen(true)}>
         <Icons.add className='mr-2 h-4 w-4' /> {t('Create Role')}
       </Button>
+      {/* eslint-disable-next-line jsx-a11y/aria-role -- `role` is the RBAC role record being edited, not an ARIA attribute */}
       {open && <RoleFormSheet role={null} open={open} onOpenChange={setOpen} />}
     </>
   );

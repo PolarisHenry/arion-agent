@@ -21,12 +21,24 @@ export const config = {
   pollIntervalMs: Number(process.env.CONFIG_POLL_INTERVAL_MS) || 30_000,
   sessionMaxRounds: 20,
   // Agent loop policy — resource caps and stuck guards replace the old hardcoded
-  // maxToolCallRounds=20. Defaults balance cost control with long-task tolerance.
-  // maxRounds is the final fuse; maxTokens (cumulative) is the primary cost cap.
+  // maxToolCallRounds=20. These are the GLOBAL DEFAULTS (used when a model
+  // doesn't override via llm_model.loop_max_tokens / enable_1m_context — see
+  // resolveLoopPolicy). Env-tunable so ops can adjust without a code change.
+  //   maxTokens  cumulative input+output across all rounds of one turn. This is
+  //              a COST cap, NOT the model's context window — it's a running sum,
+  //              and since history is re-sent each round it grows fast. 600k buys
+  //              ~20-25 tool-call rounds on a 1M-window model (the old 120k gave
+  //              only ~7-8, which is why long tasks kept hitting the budget and
+  //              forcing the "回复继续" wrap-up).
+  //   maxWallMs  whole-turn wall-clock cap. Raised to 5min so subprocess-heavy
+  //              lark-cli tasks aren't cut off mid-work.
+  //   maxRounds  hard fuse — rarely binds (token-budget catches first).
+  // maxRepeats / maxConsecutiveErrors are stuck guards (no-progress → stop),
+  // not resource caps, so they stay fixed.
   agentLoop: {
-    maxRounds: 100,
-    maxTokens: 120_000,
-    maxWallMs: 120_000,
+    maxRounds: Number(process.env.AGENT_LOOP_MAX_ROUNDS) || 100,
+    maxTokens: Number(process.env.AGENT_LOOP_MAX_TOKENS) || 600_000,
+    maxWallMs: Number(process.env.AGENT_LOOP_MAX_WALL_MS) || 300_000,
     maxConsecutiveErrors: 3,
     maxRepeats: 2
   },

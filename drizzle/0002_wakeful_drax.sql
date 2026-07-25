@@ -1,0 +1,1 @@
+ALTER TABLE "llm_model" ALTER COLUMN "max_tokens" SET DEFAULT 8192;

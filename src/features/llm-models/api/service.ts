@@ -42,3 +42,19 @@ export async function deleteLlmModel(id: string) {
   await assertOk(res);
   return res.json();
 }
+
+/** Fetch available model ids from the provider's /models endpoint (server-side
+ *  proxy keeps the key out of the browser). Used by the form's model dropdown. */
+export async function probeLlmModels(params: {
+  baseUrl: string;
+  apiKey?: string;
+  modelId?: string;
+}): Promise<{ success: boolean; models: string[] }> {
+  const res = await fetch(`${apiBaseUrl()}/api/llm-models/probe-models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  await assertOk(res);
+  return res.json();
+}

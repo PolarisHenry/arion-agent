@@ -14,6 +14,7 @@ import { createLogger } from './logger';
 import { chat, streamChat } from './llm';
 import { getTools, executeTool, type AuthHooks } from './tools';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
+import { effectiveModelName, resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { parseCommand, executeClearCommand } from './commands';
 import { ChatSerializer } from './chat-serializer';
@@ -300,9 +301,9 @@ export class AgentRuntime {
       const llmConfig = {
         baseUrl: this.llmRow.baseUrl,
         apiKey: decryptSecret(this.llmRow.apiKeyCipher),
-        modelName: this.llmRow.modelName,
+        modelName: effectiveModelName(this.llmRow),
         temperature: this.llmRow.temperature ?? 0.7,
-        maxTokens: this.llmRow.maxTokens ?? 4096
+        maxTokens: this.llmRow.maxTokens ?? 8192
       };
 
       const loopResult = await runAgentLoop({
@@ -311,7 +312,7 @@ export class AgentRuntime {
         tools,
         systemPrompt,
         initialMessages: messages,
-        policy: config.agentLoop,
+        policy: resolveLoopPolicy(this.llmRow),
         onInterim: async (content) => {
           try {
             await this.channel.send(chatId, { markdown: content });
@@ -428,7 +429,8 @@ export class AgentRuntime {
         toolCalls: toolCallLog.length > 0 ? toolCallLog : undefined,
         tokensUsed: totalTokens,
         durationMs,
-        status: 'success'
+        status: 'success',
+        stopReason: loopResult.stopReason
       });
 
       log.info(`response sent in ${durationMs}ms (${toolCallLog.length} tool calls)`);

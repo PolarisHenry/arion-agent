@@ -11,6 +11,12 @@ export type LlmModel = {
   modelName: string;
   temperature: number | null;
   maxTokens: number | null;
+  /** CC Switch-style 1M-context toggle — runtime appends `[1m]` to the model
+   *  name and grants the 1M-tier cumulative token budget when true. */
+  enable1mContext: boolean;
+  /** Optional per-model override of the agent-loop cumulative token budget.
+   *  Null → derive from enable1mContext, else the global default. */
+  loopMaxTokens: number | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -40,6 +46,8 @@ export type LlmModelMutationPayload = {
   modelName: string;
   temperature?: number;
   maxTokens?: number;
+  enable1mContext?: boolean;
+  loopMaxTokens?: number | null;
   isActive?: boolean;
 };
 

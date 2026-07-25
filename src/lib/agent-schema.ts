@@ -26,7 +26,15 @@ export const llmModel = pgTable(
     apiKeyCipher: text('api_key_cipher').notNull(),
     modelName: text('model_name').notNull(),
     temperature: real('temperature').default(0.7),
-    maxTokens: integer('max_tokens').default(4096),
+    maxTokens: integer('max_tokens').default(8192),
+    // 1M-context toggle (CC Switch convention): when true, the runtime appends
+    // a `[1m]` suffix to the model name sent to the provider so the proxy turns
+    // on the 1M context window. Also bumps the per-run token budget to the 1M
+    // tier (see resolveLoopPolicy). Null/unchecked → standard window.
+    enable1mContext: boolean('enable_1m_context').default(false).notNull(),
+    // Optional per-model override of the agent-loop cumulative token budget.
+    // Null → derive from enable1mContext, else fall back to the global default.
+    loopMaxTokens: integer('loop_max_tokens'),
     isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at', { mode: 'date', precision: 3 }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date', precision: 3 })
@@ -174,6 +182,10 @@ export const agentLog = pgTable(
     durationMs: integer('duration_ms'),
     status: text('status').notNull().default('success'),
     error: text('error'),
+    // Why the agent loop stopped this turn: final / token-budget / timeout /
+    // repetition / error-streak / round-ceiling. Null on the error path (the
+    // loop never returned) and on rows written before this column existed.
+    stopReason: text('stop_reason'),
     createdAt: timestamp('created_at', { mode: 'date', precision: 3 }).defaultNow().notNull()
   },
   (table) => [

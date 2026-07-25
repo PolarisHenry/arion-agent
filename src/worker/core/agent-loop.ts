@@ -119,7 +119,7 @@ function argsKey(args: Record<string, unknown>): string {
 function isToolError(result: string): boolean {
   return (
     /^\[(调用失败|权限不足|用户授权失效|需要用户授权)\]/.test(result) ||
-    /^\[schedule\] error:/.test(result) ||
+    result.startsWith('[schedule] error:') ||
     result.startsWith('Unknown tool:')
   );
 }

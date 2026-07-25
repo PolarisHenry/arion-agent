@@ -20,6 +20,7 @@ import { chat } from './llm';
 import { getTools, executeTool, type ToolContext } from './tools';
 import { buildSystemPrompt } from './agent-prompt';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
+import { effectiveModelName, resolveLoopPolicy } from './agent-policy';
 
 const log = createLogger('proactive-runner');
 
@@ -97,9 +98,9 @@ export async function runProactiveTurn(args: {
   const llmConfig = {
     baseUrl: llmRow.baseUrl,
     apiKey: decryptSecret(llmRow.apiKeyCipher),
-    modelName: llmRow.modelName,
+    modelName: effectiveModelName(llmRow),
     temperature: llmRow.temperature ?? 0.7,
-    maxTokens: llmRow.maxTokens ?? 4096
+    maxTokens: llmRow.maxTokens ?? 8192
   };
 
   // Stateless: initial messages are just the synthetic user turn — no prior
@@ -112,7 +113,7 @@ export async function runProactiveTurn(args: {
     tools: getTools(),
     systemPrompt,
     initialMessages: messages,
-    policy: config.agentLoop,
+    policy: resolveLoopPolicy(llmRow),
     // No onInterim — proactive turns have no user watching in real time.
     toolCtx: {
       profile: agentRow.larkCliProfile,
@@ -172,7 +173,8 @@ export async function runProactiveTurn(args: {
     toolCalls: loopResult.toolCallLog.length > 0 ? loopResult.toolCallLog : undefined,
     tokensUsed: totalTokens,
     durationMs: Date.now() - startTime,
-    status: 'success'
+    status: 'success',
+    stopReason: loopResult.stopReason
   });
 
   return {

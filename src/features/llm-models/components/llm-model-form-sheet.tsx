@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -20,9 +20,19 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
 import { Icons } from '@/components/icons';
 import { useMutation } from '@tanstack/react-query';
 import { createLlmModelMutation, updateLlmModelMutation } from '../api/mutations';
+import { probeLlmModels } from '../api/service';
 import { toast } from 'sonner';
 import { useTranslation } from '@/lib/i18n';
 import { localizeApiError } from '@/lib/api-client';
@@ -51,8 +61,19 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState(model?.modelName ?? '');
   const [temperature, setTemperature] = useState(String(model?.temperature ?? 0.7));
-  const [maxTokens, setMaxTokens] = useState(String(model?.maxTokens ?? 4096));
+  const [maxTokens, setMaxTokens] = useState(String(model?.maxTokens ?? 8192));
+  const [loopMaxTokens, setLoopMaxTokens] = useState(
+    model?.loopMaxTokens != null ? String(model.loopMaxTokens) : ''
+  );
+  const [enable1mContext, setEnable1mContext] = useState(model?.enable1mContext ?? false);
   const [isActive, setIsActive] = useState(model?.isActive ?? true);
+
+  // Model dropdown state — list is fetched on demand from the provider's
+  // /models endpoint (server-side probe keeps the key out of the browser).
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [probePending, setProbePending] = useState(false);
+  const [probeError, setProbeError] = useState<string | null>(null);
 
   const createMutation = useMutation({
     ...createLlmModelMutation,
@@ -79,8 +100,47 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
     if (preset && preset.baseUrl) setBaseUrl(preset.baseUrl);
   };
 
+  const fetchModels = useCallback(async () => {
+    if (!baseUrl.trim()) return;
+    // Create flow needs a typed key (nothing stored yet); edit flow can fall
+    // back to the stored key via modelId.
+    if (!isEdit && !apiKey.trim()) {
+      setProbeError(t('Enter API Key to fetch models'));
+      setModelOptions([]);
+      return;
+    }
+    setProbePending(true);
+    setProbeError(null);
+    try {
+      const res = await probeLlmModels({
+        baseUrl: baseUrl.trim(),
+        apiKey: apiKey.trim() || undefined,
+        modelId: isEdit ? model?.id : undefined
+      });
+      setModelOptions(res.models ?? []);
+      if ((res.models ?? []).length === 0) setProbeError(t('No models returned'));
+    } catch (err: any) {
+      setProbeError(localizeApiError(err?.message, t));
+      setModelOptions([]);
+    } finally {
+      setProbePending(false);
+    }
+  }, [baseUrl, apiKey, isEdit, model?.id, t]);
+
+  const onPickerOpenChange = (next: boolean) => {
+    setModelOpen(next);
+    // Auto-fetch on first open when we have enough to try and haven't already.
+    if (next && modelOptions.length === 0 && !probePending && (isEdit || apiKey.trim())) {
+      void fetchModels();
+    }
+  };
+
   const handleSubmit = () => {
-    if (!name.trim() || !modelName.trim() || !apiKey.trim()) return;
+    // apiKey is required only on create — editing leaves it blank to keep the
+    // current key (handled below by deleting it from the payload).
+    if (!name.trim() || !modelName.trim()) return;
+    if (!isEdit && !apiKey.trim()) return;
+    const loopBudget = loopMaxTokens.trim() === '' ? null : Number(loopMaxTokens);
     const payload: LlmModelMutationPayload = {
       name: name.trim(),
       provider,
@@ -89,6 +149,8 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
       modelName: modelName.trim(),
       temperature: Number(temperature),
       maxTokens: Number(maxTokens),
+      enable1mContext,
+      loopMaxTokens: loopBudget,
       isActive
     };
     if (isEdit && model) {
@@ -146,16 +208,6 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
           </div>
 
           <div className='space-y-2'>
-            <Label htmlFor='llm-modelname'>{t('Model')}</Label>
-            <Input
-              id='llm-modelname'
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder='deepseek-chat / gpt-4o'
-            />
-          </div>
-
-          <div className='space-y-2'>
             <Label htmlFor='llm-apikey'>{t('API Key')}</Label>
             <Input
               id='llm-apikey'
@@ -171,7 +223,89 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
             )}
           </div>
 
-          <div className='grid grid-cols-2 gap-4'>
+          <div className='space-y-2'>
+            <div className='flex items-center justify-between'>
+              <Label htmlFor='llm-modelname'>{t('Model')}</Label>
+            </div>
+            <div className='flex gap-2'>
+              <Input
+                id='llm-modelname'
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder='deepseek-chat / gpt-4o / claude-sonnet-4-5'
+                className='flex-1'
+              />
+              <Popover open={modelOpen} onOpenChange={onPickerOpenChange}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant='outline'
+                      size='icon'
+                      type='button'
+                      disabled={!baseUrl.trim()}
+                      aria-label={t('Select model')}
+                    />
+                  }
+                >
+                  {probePending ? (
+                    <Icons.spinner className='h-4 w-4 animate-spin' />
+                  ) : (
+                    <Icons.chevronsUpDown className='h-4 w-4' />
+                  )}
+                </PopoverTrigger>
+                <PopoverContent className='w-80 p-0' align='end'>
+                  <Command>
+                    <CommandInput placeholder={t('Search models')} />
+                    <CommandList>
+                      <CommandEmpty>
+                        {probePending ? t('Loading') : (probeError ?? t('No models found'))}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {modelOptions.map((m) => (
+                          <CommandItem
+                            key={m}
+                            value={m}
+                            onSelect={() => {
+                              setModelName(m);
+                              setModelOpen(false);
+                            }}
+                          >
+                            <Icons.check
+                              className={
+                                m === modelName ? 'h-4 w-4 opacity-100' : 'h-4 w-4 opacity-0'
+                              }
+                            />
+                            {m}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                  <div className='flex items-center justify-between gap-2 border-t px-2 py-1.5'>
+                    <span className='text-muted-foreground truncate text-xs'>
+                      {probeError ?? t('Auto-fetched from provider')}
+                    </span>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      type='button'
+                      onClick={() => void fetchModels()}
+                      disabled={probePending || !baseUrl.trim()}
+                    >
+                      {t('Refresh')}
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <p className='text-muted-foreground text-xs'>
+              {t('Click the list icon to pick, or type manually')}
+            </p>
+          </div>
+
+          {/* — 生成参数 — */}
+          <div className='space-y-3'>
+            <div className='text-muted-foreground text-xs font-semibold'>{t('Generation')}</div>
             <div className='space-y-2'>
               <Label htmlFor='llm-temp'>{t('Temperature')}</Label>
               <Input
@@ -181,7 +315,13 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
                 value={temperature}
                 onChange={(e) => setTemperature(e.target.value)}
               />
+              <p className='text-muted-foreground text-xs'>{t('Temperature hint')}</p>
             </div>
+          </div>
+
+          {/* — 用量上限 — */}
+          <div className='space-y-3'>
+            <div className='text-muted-foreground text-xs font-semibold'>{t('Limits')}</div>
             <div className='space-y-2'>
               <Label htmlFor='llm-maxtok'>{t('Max Tokens')}</Label>
               <Input
@@ -190,6 +330,28 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
                 value={maxTokens}
                 onChange={(e) => setMaxTokens(e.target.value)}
               />
+              <p className='text-muted-foreground text-xs'>{t('Max Tokens hint')}</p>
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='llm-loopbudget'>{t('Loop token budget')}</Label>
+              <Input
+                id='llm-loopbudget'
+                type='number'
+                value={loopMaxTokens}
+                onChange={(e) => setLoopMaxTokens(e.target.value)}
+                placeholder={t('Default (auto)')}
+              />
+              <p className='text-muted-foreground text-xs'>{t('Loop token budget hint')}</p>
+            </div>
+            <div className='space-y-1'>
+              <label className='flex cursor-pointer items-center gap-2'>
+                <Checkbox
+                  checked={enable1mContext}
+                  onCheckedChange={(v) => setEnable1mContext(!!v)}
+                />
+                <span className='text-sm'>{t('Enable 1M context')}</span>
+              </label>
+              <p className='text-muted-foreground pl-6 text-xs'>{t('1M context hint')}</p>
             </div>
           </div>
 
