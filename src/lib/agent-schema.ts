@@ -149,6 +149,14 @@ export const agentMemory = pgTable(
     label: text('label'),
     category: text('category'),
     note: text('note'),
+    /** Importance tier for truncation priority. Top-50 inject keeps high first,
+     *  then medium, then low; within each tier newest-first. Agent sets this via
+     *  the `memory` tool's `importance` param. */
+    importance: text('importance').notNull().default('medium'),
+    /** Optional expiry. After this timestamp the fact is excluded from injection
+     *  (though not auto-deleted — dashboard still shows it for audit). Agent sets
+     *  this for time-bounded facts like "current sprint ends Friday". */
+    expiresAt: timestamp('expires_at', { mode: 'date', precision: 3 }),
     createdAt: timestamp('created_at', { mode: 'date', precision: 3 }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date', precision: 3 })
       .defaultNow()

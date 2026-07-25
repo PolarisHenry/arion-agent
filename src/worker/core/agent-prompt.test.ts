@@ -96,3 +96,26 @@ describe('buildSystemPrompt clarification protocol', () => {
     expect(prompt).toContain('不要抛澄清问题');
   });
 });
+
+describe('buildSystemPrompt memory injection', () => {
+  it('appends the memory section when memorySection is provided', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt(
+      '你是助手。',
+      {
+        memorySection: '\n\n## 已记下的信息（长期记忆，/clear 不会丢）\n- 记账表格 token: UXgbs'
+      },
+      fakeExec as any
+    );
+    expect(prompt).toContain('已记下的信息');
+    expect(prompt).toContain('UXgbs');
+  });
+
+  it('omits the memory section when not provided', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', undefined, fakeExec as any);
+    expect(prompt).not.toContain('已记下的信息');
+  });
+});

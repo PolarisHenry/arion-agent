@@ -16,6 +16,7 @@ import { getTools, executeTool, type AuthHooks } from './tools';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
 import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
+import { loadMemoryFacts, renderMemorySection } from './agent-memory';
 import { parseCommand, executeClearCommand } from './commands';
 import { ChatSerializer } from './chat-serializer';
 import { SessionManager } from '../session/index';
@@ -287,7 +288,14 @@ export class AgentRuntime {
       // every call (so prompt edits hot-reload) and is NOT stored in history —
       // storing it made it accumulate one copy per turn. The current time
       // context is appended fresh each message so the model always knows "today".
-      const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt);
+      let memorySection = '';
+      try {
+        memorySection = renderMemorySection(await loadMemoryFacts(this.agentId));
+      } catch (memErr: any) {
+        // Memory must never break a turn — proceed without it.
+        log.warn(`memory load failed: ${memErr?.message ?? memErr}`);
+      }
+      const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt, { memorySection });
       const sessionHistory = await this.sessionMgr.load(chatId, chatType);
 
       // `messages` is the persisted history (system prompt is NOT included).

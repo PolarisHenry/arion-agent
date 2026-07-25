@@ -805,7 +805,13 @@ export const translations = {
     'Agent Detail': 'Agent Detail',
     'View agent configuration and logs.': 'View agent configuration and logs.',
     Logs: 'Logs',
+    Memory: 'Memory',
     'No logs yet': 'No logs yet',
+    'No memory yet': 'No memory yet',
+    Deleted: 'Deleted',
+    'Delete failed': 'Delete failed',
+    Delete: 'Delete',
+    Expires: 'Expires',
 
     // Agent user identity
     'User Identity': 'User Identity',
@@ -1686,7 +1692,13 @@ export const translations = {
     'Agent Detail': '数字员工详情',
     'View agent configuration and logs.': '查看数字员工配置与日志。',
     Logs: '日志',
+    Memory: '记忆',
     'No logs yet': '暂无日志',
+    'No memory yet': '还没有记忆',
+    Deleted: '已删除',
+    'Delete failed': '删除失败',
+    Delete: '删除',
+    Expires: '过期',
 
     // Agent user identity
     'User Identity': '用户身份',

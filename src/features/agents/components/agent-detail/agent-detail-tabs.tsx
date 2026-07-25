@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { getAgentById } from '../../api/service';
 import { AgentLogPanel, AgentLogPanelSkeleton } from './agent-log-panel';
+import { AgentMemoryPanel, AgentMemoryPanelSkeleton } from './agent-memory-panel';
 import { useTranslation } from '@/lib/i18n';
 import { Suspense } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -81,6 +82,7 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
         <TabsList>
           <TabsTrigger value='overview'>{t('Dashboard')}</TabsTrigger>
           <TabsTrigger value='logs'>{t('Logs')}</TabsTrigger>
+          <TabsTrigger value='memory'>{t('Memory')}</TabsTrigger>
         </TabsList>
         <TabsContent value='overview' className='pt-4'>
           <div className='space-y-3 text-sm'>
@@ -95,6 +97,11 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
         <TabsContent value='logs' className='pt-4'>
           <Suspense fallback={<AgentLogPanelSkeleton />}>
             <AgentLogPanel agentId={agentId} />
+          </Suspense>
+        </TabsContent>
+        <TabsContent value='memory' className='pt-4'>
+          <Suspense fallback={<AgentMemoryPanelSkeleton />}>
+            <AgentMemoryPanel agentId={agentId} />
           </Suspense>
         </TabsContent>
       </Tabs>

@@ -18,7 +18,8 @@ import { writeLog } from './log-writer';
 import { decryptSecret } from '../../lib/crypto';
 import { chat } from './llm';
 import { getTools, executeTool, type ToolContext } from './tools';
-import { buildSystemPrompt } from './agent-prompt';
+import { buildSystemPrompt, type BuildSystemPromptOptions } from './agent-prompt';
+import { loadMemoryFacts, renderMemorySection } from './agent-memory';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
 import { resolveLoopPolicy } from './agent-policy';
 
@@ -87,13 +88,18 @@ export async function runProactiveTurn(args: {
   const asUser = authRow?.status === 'authorized' || authRow?.status === 'incremental_awaiting';
 
   // Build the SAME full system prompt the message path uses (lark guide +
-  // time + tool discipline) + an optional triggered-run block telling the
+  // time + tool discipline + memory) + an optional triggered-run block telling the
   // model its reply is auto-delivered as bot — so it just outputs content
   // instead of trying to send an IM as the user (the prior failure mode).
-  const systemPrompt = await buildSystemPrompt(
-    agentRow.systemPrompt,
-    args.triggeredRun ? { triggeredRun: args.triggeredRun } : undefined
-  );
+  let memorySection = '';
+  try {
+    memorySection = renderMemorySection(await loadMemoryFacts(args.agentId));
+  } catch {
+    // best effort — triggered run proceeds without memory
+  }
+  const promptOpts: BuildSystemPromptOptions = { memorySection };
+  if (args.triggeredRun) promptOpts.triggeredRun = args.triggeredRun;
+  const systemPrompt = await buildSystemPrompt(agentRow.systemPrompt, promptOpts);
 
   const llmConfig = {
     baseUrl: llmRow.baseUrl,

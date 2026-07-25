@@ -36,6 +36,13 @@
       "when": 1784981735617,
       "tag": "0004_workable_black_panther",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784982119875,
+      "tag": "0005_ordinary_red_wolf",
+      "breakpoints": true
     }
   ]
 }
