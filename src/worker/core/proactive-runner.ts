@@ -20,7 +20,7 @@ import { chat } from './llm';
 import { getTools, executeTool, type ToolContext } from './tools';
 import { buildSystemPrompt } from './agent-prompt';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
-import { effectiveModelName, resolveLoopPolicy } from './agent-policy';
+import { resolveLoopPolicy } from './agent-policy';
 
 const log = createLogger('proactive-runner');
 
@@ -98,7 +98,7 @@ export async function runProactiveTurn(args: {
   const llmConfig = {
     baseUrl: llmRow.baseUrl,
     apiKey: decryptSecret(llmRow.apiKeyCipher),
-    modelName: effectiveModelName(llmRow),
+    modelName: llmRow.modelName,
     temperature: llmRow.temperature ?? 0.7,
     maxTokens: llmRow.maxTokens ?? 8192
   };

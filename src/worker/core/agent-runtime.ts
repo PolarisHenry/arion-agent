@@ -14,7 +14,7 @@ import { createLogger } from './logger';
 import { chat, streamChat } from './llm';
 import { getTools, executeTool, type AuthHooks } from './tools';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
-import { effectiveModelName, resolveLoopPolicy } from './agent-policy';
+import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { parseCommand, executeClearCommand } from './commands';
 import { ChatSerializer } from './chat-serializer';
@@ -301,7 +301,7 @@ export class AgentRuntime {
       const llmConfig = {
         baseUrl: this.llmRow.baseUrl,
         apiKey: decryptSecret(this.llmRow.apiKeyCipher),
-        modelName: effectiveModelName(this.llmRow),
+        modelName: this.llmRow.modelName,
         temperature: this.llmRow.temperature ?? 0.7,
         maxTokens: this.llmRow.maxTokens ?? 8192
       };

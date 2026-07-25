@@ -24,7 +24,6 @@ function toModel(row: typeof llmModel.$inferSelect) {
     modelName: row.modelName,
     temperature: row.temperature,
     maxTokens: row.maxTokens,
-    enable1mContext: row.enable1mContext,
     loopMaxTokens: row.loopMaxTokens,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
@@ -104,7 +103,6 @@ export async function POST(request: NextRequest) {
       modelName,
       temperature: body.temperature ?? 0.7,
       maxTokens: body.maxTokens ?? 8192,
-      enable1mContext: body.enable1mContext ?? false,
       loopMaxTokens: body.loopMaxTokens ?? null,
       isActive: body.isActive ?? true
     });

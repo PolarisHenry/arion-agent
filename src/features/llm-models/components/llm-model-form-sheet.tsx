@@ -65,7 +65,6 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
   const [loopMaxTokens, setLoopMaxTokens] = useState(
     model?.loopMaxTokens != null ? String(model.loopMaxTokens) : ''
   );
-  const [enable1mContext, setEnable1mContext] = useState(model?.enable1mContext ?? false);
   const [isActive, setIsActive] = useState(model?.isActive ?? true);
 
   // Model dropdown state — list is fetched on demand from the provider's
@@ -149,7 +148,6 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
       modelName: modelName.trim(),
       temperature: Number(temperature),
       maxTokens: Number(maxTokens),
-      enable1mContext,
       loopMaxTokens: loopBudget,
       isActive
     };
@@ -342,16 +340,6 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
                 placeholder={t('Default (auto)')}
               />
               <p className='text-muted-foreground text-xs'>{t('Loop token budget hint')}</p>
-            </div>
-            <div className='space-y-1'>
-              <label className='flex cursor-pointer items-center gap-2'>
-                <Checkbox
-                  checked={enable1mContext}
-                  onCheckedChange={(v) => setEnable1mContext(!!v)}
-                />
-                <span className='text-sm'>{t('Enable 1M context')}</span>
-              </label>
-              <p className='text-muted-foreground pl-6 text-xs'>{t('1M context hint')}</p>
             </div>
           </div>
 

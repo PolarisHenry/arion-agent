@@ -767,10 +767,7 @@ export const translations = {
     'Loop token budget': 'Loop token budget',
     'Default (auto)': 'Default (auto)',
     'Loop token budget hint':
-      'Optional. Overrides the per-task cumulative token budget (cost cap). Leave blank for the default (or the 1M tier when 1M is enabled).',
-    'Enable 1M context': 'Enable 1M context',
-    '1M context hint':
-      'Appends [1m] to the model name so the provider enables the 1M context window, and grants a larger per-task token budget.',
+      'Optional. Overrides the per-task cumulative token budget (cost cap). Leave blank for the default.',
     Generation: 'Generation',
     Limits: 'Limits',
     'Temperature hint':
@@ -1652,11 +1649,7 @@ export const translations = {
     'Click the list icon to pick, or type manually': '点击右侧图标选择，或手动输入模型名。',
     'Loop token budget': '循环 Token 预算',
     'Default (auto)': '默认（自动）',
-    'Loop token budget hint':
-      '可选。覆盖单任务累计 Token 预算（成本上限）。留空使用默认值（启用 1M 时自动用 1M 档）。',
-    'Enable 1M context': '启用 1M 上下文',
-    '1M context hint':
-      '在模型名后加 [1m] 后缀让供应商开启 1M 上下文窗口，并提高单任务 Token 预算。',
+    'Loop token budget hint': '可选。覆盖单任务累计 Token 预算（成本上限）。留空使用默认值。',
     Generation: '生成参数',
     Limits: '用量上限',
     'Temperature hint': '越高越有创意/随机，越低越稳定。一般 0.7 即可。',

@@ -22,14 +22,14 @@ export const config = {
   sessionMaxRounds: 20,
   // Agent loop policy — resource caps and stuck guards replace the old hardcoded
   // maxToolCallRounds=20. These are the GLOBAL DEFAULTS (used when a model
-  // doesn't override via llm_model.loop_max_tokens / enable_1m_context — see
-  // resolveLoopPolicy). Env-tunable so ops can adjust without a code change.
+  // doesn't override via llm_model.loop_max_tokens — see resolveLoopPolicy).
+  // Env-tunable so ops can adjust without a code change.
   //   maxTokens  cumulative input+output across all rounds of one turn. This is
   //              a COST cap, NOT the model's context window — it's a running sum,
   //              and since history is re-sent each round it grows fast. 600k buys
-  //              ~20-25 tool-call rounds on a 1M-window model (the old 120k gave
-  //              only ~7-8, which is why long tasks kept hitting the budget and
-  //              forcing the "回复继续" wrap-up).
+  //              ~20-25 tool-call rounds on a long-context model (the old 120k
+  //              gave only ~7-8, which is why long tasks kept hitting the budget
+  //              and forcing the "回复继续" wrap-up).
   //   maxWallMs  whole-turn wall-clock cap. Raised to 5min so subprocess-heavy
   //              lark-cli tasks aren't cut off mid-work.
   //   maxRounds  hard fuse — rarely binds (token-budget catches first).

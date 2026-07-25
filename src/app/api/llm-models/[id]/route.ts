@@ -36,7 +36,6 @@ export async function GET(_request: NextRequest, { params }: Params) {
       modelName: row!.modelName,
       temperature: row!.temperature,
       maxTokens: row!.maxTokens,
-      enable1mContext: row!.enable1mContext,
       loopMaxTokens: row!.loopMaxTokens,
       isActive: row!.isActive,
       createdAt: row!.createdAt.toISOString(),
@@ -82,7 +81,6 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (body.modelName !== undefined) updates.modelName = body.modelName;
     if (body.temperature !== undefined) updates.temperature = body.temperature;
     if (body.maxTokens !== undefined) updates.maxTokens = body.maxTokens;
-    if (body.enable1mContext !== undefined) updates.enable1mContext = body.enable1mContext;
     if (body.loopMaxTokens !== undefined) updates.loopMaxTokens = body.loopMaxTokens;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
     if (typeof body.apiKey === 'string' && body.apiKey.trim() !== '') {
