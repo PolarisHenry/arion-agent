@@ -89,6 +89,27 @@ export const WRAP_UP_INSTRUCTIONS: Record<Exclude<StopReason, 'final'>, string> 
 export const WRAP_UP_FALLBACK =
   '（本轮已达到处理上限，任务还没全部完成。回复「继续」我可以接着处理。）';
 
+// -----------------------------------------------------------
+// Announce-without-acting nudge
+// -----------------------------------------------------------
+
+/** Promise-of-action phrases that signal the model is narrating intent
+ *  ("好嘞我先给你建") instead of acting. Their ABSENCE means a no-tool-call
+ *  reply is a legit final — a real answer or a real clarifying question — so
+ *  it must NOT be nudged. */
+const PROMISE_RE = /(我去|我来|我会|我帮|马上|稍等|这就|先给你|这就去|马上来|我去查|我来看|待会儿)/;
+
+/** Injected as a user message when the model fake-promises an action. Forces a
+ *  single "commit: act now or ask a specific question" decision so the loop
+ *  never ships an unfulfilled promise ("好嘞我先去建" + nothing) as the final
+ *  answer. One nudge max — see `nudged` in runAgentLoop. */
+const NUDGE_INSTRUCTION = [
+  '系统检测：你上一条说要去执行某个操作，但本回合没有调用任何工具，也没有给出一个具体的澄清问题——这是被禁止的「只承诺不执行」。',
+  '请在下面两条里选一条，不要再回「我马上去 / 这就去查」之类的话：',
+  '(1) 信息齐全、你确实能做：立刻调用对应工具把它做完。',
+  '(2) 缺决定性参数（时间 / 目标 / 对象 / 源…）：直接抛出一个具体的澄清问题——列清楚你缺什么、给几个选项，然后停下等用户回复。不要猜参数硬做。'
+].join('\n');
+
 /** Build the message list for a non-final wrap-up call: system prompt + full
  *  turn history + a stop-reason-specific instruction to summarize honestly.
  *  Pure — does not call the LLM. */
@@ -158,6 +179,11 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
   // Consecutive error state
   let consecutiveErrors = 0;
 
+  // Whether we've already issued the announce-without-acting nudge. One max —
+  // if the model still fake-promises after being nudged, accept it as final
+  // rather than looping forever.
+  let nudged = false;
+
   const loopStartMs = Date.now();
 
   for (let round = 0; round < policy.maxRounds; round++) {
@@ -177,8 +203,21 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
 
     totalTokens += resp.usage.totalTokens;
 
-    // Model returned no tool calls → natural final answer
+    // Model returned no tool calls. Usually that's the natural final answer —
+    // BUT if no tool has run yet this turn and the prose reads like an action
+    // promise ("好嘞我先给你建"), the model is announcing intent without
+    // acting. Inject one "commit: act or ask" nudge and continue, rather than
+    // shipping an unfulfilled promise as the final answer. Genuine clarifying
+    // questions and chit-chat contain no promise phrase → fall straight through
+    // to a legit final (and never cost an extra round).
     if (!resp.toolCalls || resp.toolCalls.length === 0) {
+      const prose = (resp.content ?? '').trim();
+      if (!nudged && toolCallLog.length === 0 && PROMISE_RE.test(prose)) {
+        nudged = true;
+        messages.push({ role: 'assistant', content: resp.content ?? '' });
+        messages.push({ role: 'user', content: NUDGE_INSTRUCTION });
+        continue;
+      }
       reachedFinal = true;
       if (resp.content) {
         finalContent = resp.content;

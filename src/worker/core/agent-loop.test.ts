@@ -546,3 +546,139 @@ describe('runAgentLoop edge cases', () => {
     expect(result.finalContent).toBe('Done.');
   });
 });
+
+// -----------------------------------------------------------
+// Announce-without-acting nudge — when the model writes an
+// action promise ("好嘞我先给你建") but emits NO tool call, the
+// loop must not ship that promise as the final answer. It injects
+// one "commit: act or ask" nudge and gives the model another round.
+// -----------------------------------------------------------
+
+describe('runAgentLoop announce-without-acting nudge', () => {
+  it('nudges when the model fake-promises an action, so the tool actually runs', async () => {
+    // Round 0: pure prose promise, no tool call (the bug).
+    // Round 1: after the nudge, the model actually calls manage_schedule.
+    // Round 2: real final answer.
+    let call = 0;
+    const chat = async (): Promise<ChatResult> => {
+      call++;
+      if (call === 1) {
+        return {
+          content: '好嘞！我先给你建个任务提醒「看一下吃啥」',
+          finishReason: 'stop',
+          usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 }
+        };
+      }
+      if (call === 2) {
+        return {
+          content: null,
+          toolCalls: [
+            {
+              id: 'ms1',
+              name: 'manage_schedule',
+              arguments: '{"action":"create","name":"看一下吃啥"}'
+            }
+          ],
+          finishReason: 'tool_calls',
+          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 }
+        };
+      }
+      return {
+        content: '✅ 已创建提醒「看一下吃啥」。',
+        finishReason: 'stop',
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 }
+      };
+    };
+
+    const deps = makeDeps({
+      chat,
+      tools: [
+        { type: 'function', function: { name: 'manage_schedule', description: '', parameters: {} } }
+      ]
+    });
+
+    const result = await runAgentLoop(deps);
+
+    // The tool was actually executed — without the nudge this stays at 0.
+    expect(result.toolCallLog).toHaveLength(1);
+    expect(result.toolCallLog[0].tool).toBe('manage_schedule');
+    expect(result.stopReason).toBe('final');
+    expect(result.finalContent).toBe('✅ 已创建提醒「看一下吃啥」。');
+    // A nudge user-message was injected between the promise and the tool call.
+    expect(
+      result.messages.some((m) => m.role === 'user' && m.content.includes('只承诺不执行'))
+    ).toBe(true);
+  });
+
+  it('does NOT nudge a genuine clarifying question (legit ask-then-act final)', async () => {
+    let calls = 0;
+    const chat = async (): Promise<ChatResult> => {
+      calls++;
+      return {
+        content: '你想把账号密码搬到哪个文档？我需要知道目标位置才能搬。',
+        finishReason: 'stop',
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 }
+      };
+    };
+    const deps = makeDeps({ chat });
+    const result = await runAgentLoop(deps);
+
+    expect(calls).toBe(1); // no extra nudge round
+    expect(result.stopReason).toBe('final');
+    expect(result.toolCallLog).toHaveLength(0);
+    expect(result.finalContent).toContain('搬到哪个文档');
+    expect(
+      result.messages.some((m) => m.role === 'user' && m.content.includes('只承诺不执行'))
+    ).toBe(false);
+  });
+
+  it('does NOT nudge chit-chat / plain answers with no promise phrase', async () => {
+    let calls = 0;
+    const chat = async (): Promise<ChatResult> => {
+      calls++;
+      return {
+        content: '你好！有什么可以帮你的吗？',
+        finishReason: 'stop',
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 }
+      };
+    };
+    const deps = makeDeps({ chat });
+    const result = await runAgentLoop(deps);
+
+    expect(calls).toBe(1);
+    expect(result.stopReason).toBe('final');
+    expect(result.finalContent).toBe('你好！有什么可以帮你的吗？');
+  });
+
+  it('does NOT nudge a promise-word summary AFTER real work was already done', async () => {
+    // Round 0: real tool call. Round 1: summary that happens to contain "我帮"
+    // — must NOT trigger a nudge, because toolCallLog is no longer empty.
+    let call = 0;
+    const chat = async (): Promise<ChatResult> => {
+      call++;
+      if (call === 1) {
+        return {
+          content: null,
+          toolCalls: [{ id: 's1', name: 'search', arguments: '{"q":"x"}' }],
+          finishReason: 'tool_calls',
+          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 }
+        };
+      }
+      return {
+        content: '我帮你查到了，结果如下……',
+        finishReason: 'stop',
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 }
+      };
+    };
+    const deps = makeDeps({
+      chat,
+      tools: [{ type: 'function', function: { name: 'search', description: '', parameters: {} } }]
+    });
+    const result = await runAgentLoop(deps);
+
+    expect(call).toBe(2); // no nudge round after the summary
+    expect(result.stopReason).toBe('final');
+    expect(result.toolCallLog).toHaveLength(1);
+    expect(result.finalContent).toBe('我帮你查到了，结果如下……');
+  });
+});

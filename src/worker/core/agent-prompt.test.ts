@@ -63,3 +63,36 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('oc_');
   });
 });
+
+describe('buildSystemPrompt clarification protocol', () => {
+  it('appends the ask-before-acting protocol on the message path', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', undefined, fakeExec as any);
+
+    expect(prompt).toContain('信息不足时先问清楚再动手');
+    expect(prompt).toContain('不要猜参数硬做');
+    expect(prompt).toContain('停下等');
+  });
+
+  it('keeps the "do it in-turn" rule but carves out the ask path (no contradiction)', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', undefined, fakeExec as any);
+
+    expect(prompt).toContain('不要中途停下等用户追问');
+    expect(prompt).toContain('信息不足');
+  });
+
+  it('suppresses clarifying questions in triggered-run mode', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt(
+      '你是助手。',
+      { triggeredRun: { targetChatId: 'oc_123' } },
+      fakeExec as any
+    );
+
+    expect(prompt).toContain('不要抛澄清问题');
+  });
+});
