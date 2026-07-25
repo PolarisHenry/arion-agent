@@ -808,9 +808,7 @@ export const translations = {
     Memory: 'Memory',
     'No logs yet': 'No logs yet',
     'No memory yet': 'No memory yet',
-    Deleted: 'Deleted',
     'Delete failed': 'Delete failed',
-    Delete: 'Delete',
     Expires: 'Expires',
 
     // Agent user identity
@@ -1695,9 +1693,7 @@ export const translations = {
     Memory: '记忆',
     'No logs yet': '暂无日志',
     'No memory yet': '还没有记忆',
-    Deleted: '已删除',
     'Delete failed': '删除失败',
-    Delete: '删除',
     Expires: '过期',
 
     // Agent user identity
