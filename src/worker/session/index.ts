@@ -55,8 +55,8 @@ export class SessionManager {
 
   /** Save the full message list back to DB, with truncation if needed. */
   async save(chatId: string, chatType: string, messages: Message[]): Promise<void> {
-    // Truncate: keep system prompt + last N user/assistant rounds
-    const truncated = this.truncate(messages, config.sessionMaxRounds);
+    // Two-stage truncation: coarse (round-based) + fine (token-budget).
+    const truncated = this.truncate(messages, config.sessionMaxRounds, config.sessionMaxTokens);
 
     const [row] = await workerDb
       .select()
@@ -114,27 +114,52 @@ export class SessionManager {
     }
   }
 
-  /** Truncate to the last N rounds. History no longer stores system messages
-   *  (the runtime re-injects the prompt each turn), so we only trim the rest —
-   *  and we never split an (assistant.tool_calls → tool) pair, which would
-   *  orphan a tool message and make the whole history unreplayable. */
-  private truncate(messages: Message[], maxRounds: number): Message[] {
+  /** Two-stage truncation: (1) keep last N rounds, (2) if still over the
+   *  estimated token budget, degrade old tool results to PLACEHOLDER-level
+   *  one-liners — same fidelity-drop strategy as the agent loop's Layer 2.
+   *  Never touches user or assistant messages (those are semantically
+   *  load-bearing). Never splits an (assistant.tool_calls → tool) pair. */
+  private truncate(messages: Message[], maxRounds: number, maxTokens: number): Message[] {
     const rest = messages.filter((m) => m.role !== 'system');
-    if (rest.length <= maxRounds * 2) return rest;
 
-    let recent = rest.slice(-maxRounds * 2);
-    // Drop a leading tool whose requesting assistant was truncated away.
-    while (recent.length > 0 && recent[0].role === 'tool') recent = recent.slice(1);
-    // Drop a trailing assistant(tool_calls) whose tool results were truncated away.
-    while (recent.length > 0) {
-      const last = recent[recent.length - 1];
-      if (last.role === 'assistant' && last.tool_calls && last.tool_calls.length > 0) {
-        recent = recent.slice(0, -1);
-      } else {
-        break;
+    // --- Stage 1: round-based coarse cut ---
+    let recent = rest;
+    if (recent.length > maxRounds * 2) {
+      recent = recent.slice(-maxRounds * 2);
+      // Drop a leading tool whose requesting assistant was truncated away.
+      while (recent.length > 0 && recent[0].role === 'tool') recent = recent.slice(1);
+      // Drop a trailing assistant(tool_calls) whose tool results were truncated away.
+      while (recent.length > 0) {
+        const last = recent[recent.length - 1];
+        if (last.role === 'assistant' && last.tool_calls && last.tool_calls.length > 0) {
+          recent = recent.slice(0, -1);
+        } else {
+          break;
+        }
       }
     }
-    return recent;
+
+    // --- Stage 2: token-budget fine cut ---
+    // Cheap heuristic: ~4 chars ≈ 1 token (CJK-dense text averages higher;
+    // 4 is conservative — it over-counts slightly, trimming earlier).
+    const estTokens = recent.reduce((sum, m) => sum + m.content.length / 4, 0);
+    if (estTokens <= maxTokens) return recent;
+
+    // Walk backwards from the oldest message, degrading tool results until
+    // the budget fits. User and assistant messages are never touched — their
+    // content is structurally needed for conversation coherence.
+    const result = [...recent];
+    let budget = estTokens;
+    for (let i = 0; i < result.length && budget > maxTokens; i++) {
+      const m = result[i];
+      if (m.role !== 'tool') continue;
+      if (m.content.length < 100) continue; // already tiny
+      const saved = m.content.length / 4 - 30; // ~30 tokens for the placeholder
+      m.content = `[ARCHIVED] ${m.name || 'tool'} (${m.content.length.toLocaleString()} 字符)`;
+      budget -= saved;
+    }
+
+    return result;
   }
 
   /** Make a loaded history safe to replay: drop system messages (not persisted

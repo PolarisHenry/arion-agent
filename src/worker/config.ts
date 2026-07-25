@@ -20,6 +20,33 @@ export const config = {
     process.env.NEXT_PUBLIC_APP_TIMEZONE || process.env.AGENT_TIMEZONE || 'Asia/Shanghai',
   pollIntervalMs: Number(process.env.CONFIG_POLL_INTERVAL_MS) || 30_000,
   sessionMaxRounds: 20,
+  /** Max estimated tokens in a persisted session. When exceeded, older
+   *  messages are trimmed (char-count heuristic: ~4 chars ≈ 1 token for CJK,
+   *  so 80k chars ≈ 20k tokens). Preserves user+assistant messages; degrades
+   *  tool results first (they're the dominant cost). Env-tunable. */
+  sessionMaxTokens: Number(process.env.SESSION_MAX_TOKENS) || 20_000,
+  // ---- Agent-loop context-cost guard rails -----------------------------------
+  // Three-layer graduated pipeline, cheapest first (industry pattern:
+  // every production agent system uses this — Claude Code, Anthropic SDK,
+  // Shopify Sidekick). Layer 1 + 2 are pure string ops (zero API cost);
+  // Layer 3 (LLM compaction) is reserved for when 1+2 aren't enough.
+  //
+  // Layer 1 — Observation Mask: structured truncation with a metadata
+  //   header (tool / command / status / size) so the model knows exactly
+  //   what was truncated and why. Replaces naive head+tail cutting.
+  // Layer 2 — Progressive Fidelity Drop: three-tiers (FULL / MASKED /
+  //   PLACEHOLDER) driven by recency. Only degrades tool messages — user
+  //   and assistant content is never touched (protects the prompt cache
+  //   prefix too, since DeepSeek auto-caches the unchanged prefix).
+  // Layer 3 — LLM Compaction: reserved, not yet wired. A single cheap-model
+  //   API call that summarises old message blocks. Only when 1+2 aren't
+  //   enough (JetBrains NeurIPS 2025: masking already beats summarization).
+  /** Layer 1: max chars of a tool result before structured truncation. */
+  toolResultMaxChars: Number(process.env.TOOL_RESULT_MAX_CHARS) || 8000,
+  /** Layer 2: rounds older than this → tool results demoted from FULL to MASKED. */
+  maskToolResultsAfterRounds: 3,
+  /** Layer 2: rounds older than this → tool results demoted from MASKED to PLACEHOLDER. */
+  archiveToolResultsAfterRounds: 6,
   // Agent loop policy — resource caps and stuck guards replace the old hardcoded
   // maxToolCallRounds=20. These are the GLOBAL DEFAULTS (used when a model
   // doesn't override via llm_model.loop_max_tokens — see resolveLoopPolicy).

@@ -166,6 +166,12 @@ export async function streamChat(
     params.tool_choice = 'auto';
   }
 
+  // Request usage stats in the final stream chunk so the budget fuse and
+  // agent_log both see the real token spend. OpenAI-compatible providers
+  // return a chunk with usage: { prompt_tokens, completion_tokens, total_tokens }
+  // when stream_options.include_usage is set.
+  (params as any).stream_options = { include_usage: true };
+
   log.debug(
     `LLM stream: ${llmConfig.modelName}, ${messages.length} msgs, ${tools?.length ?? 0} tools`
   );
@@ -173,12 +179,28 @@ export async function streamChat(
   const stream = await client.chat.completions.create(params);
 
   let content = '';
+  let streamUsage: { promptTokens: number; completionTokens: number; totalTokens: number } = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0
+  };
   const toolCallAccum: Record<number, { id: string; name: string; arguments: string }> = {};
   // Filter raw deltas so DSML markup is never streamed to the user token-by-token.
   const dsmlFilter = createDsmlStreamFilter(onToken);
 
   for await (const chunk of stream) {
     const delta = chunk.choices?.[0]?.delta;
+    // Capture usage from the final stream chunk (stream_options.include_usage).
+    // OpenAI-compatible providers emit it on a chunk with no delta, or as
+    // chunk.usage directly.
+    const chunkUsage = (chunk as any).usage;
+    if (chunkUsage?.total_tokens) {
+      streamUsage = {
+        promptTokens: chunkUsage.prompt_tokens ?? 0,
+        completionTokens: chunkUsage.completion_tokens ?? 0,
+        totalTokens: chunkUsage.total_tokens
+      };
+    }
     if (!delta) continue;
 
     if (delta.content) {
@@ -216,10 +238,8 @@ export async function streamChat(
     content: content || null,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason: 'stop',
-    // Streaming responses typically don't include usage; these are tracked by
-    // the non-streaming `chat()` calls. Add a zero placeholder so the caller
-    // can safely accumulate.
-    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    // Return real usage from stream_options.include_usage when available.
+    usage: streamUsage
   };
 }
 

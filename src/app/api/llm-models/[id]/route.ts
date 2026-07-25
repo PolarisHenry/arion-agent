@@ -4,8 +4,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { llmModel } from '@/lib/agent-schema';
-import { eq, and } from 'drizzle-orm';
+import { llmModel, agent } from '@/lib/agent-schema';
+import { eq, and, sql } from 'drizzle-orm';
 import { requirePermission, UnauthorizedError, ForbiddenError } from '@/lib/rbac/check';
 import { PERMISSIONS } from '@/lib/rbac/permissions';
 import { encryptSecret, decryptSecret, maskSecret } from '@/lib/crypto';
@@ -88,6 +88,22 @@ export async function PUT(request: NextRequest, { params }: Params) {
     }
 
     await db.update(llmModel).set(updates).where(eq(llmModel.id, id));
+
+    // Bump configVersion on every agent bound to this model so the next
+    // poll cycle triggers reloadFromDb and picks up the new model config.
+    try {
+      await db
+        .update(agent)
+        .set({
+          configVersion: sql`${agent.configVersion} + 1`,
+          updatedAt: new Date()
+        })
+        .where(eq(agent.llmModelId, id));
+    } catch {
+      // The model config is already saved. If this bump fails, agents will
+      // pick up the new config on next restart — not a data-loss scenario.
+    }
+
     return NextResponse.json({ updated: true });
   } catch (e) {
     if (e instanceof UnauthorizedError)

@@ -7,6 +7,7 @@
 
 import type { LlmMessage, LlmTool, ChatResult } from './llm';
 import type { ToolContext } from './tools';
+import { config } from '../config';
 
 // -----------------------------------------------------------
 // Types
@@ -146,6 +147,91 @@ function isToolError(result: string): boolean {
 }
 
 // -----------------------------------------------------------
+// Context-cost guard rails — three-layer graduated pipeline.
+// -----------------------------------------------------------
+// Layer 1: Observation Mask — structured truncation with metadata
+//   header (tool / status / size) so the model knows what was cut.
+// Layer 2: Progressive Fidelity Drop — three tiers (FULL / MASKED /
+//   PLACEHOLDER) driven by recency. Only degrades tool messages — user
+//   and assistant content is never touched (protects prompt cache prefix).
+// Layer 3: LLM Compaction — reserved, not yet wired.
+//
+// Industry references:
+//   Claude Code (Snip → Microcompact → Context Collapse → AutoCompact)
+//   JetBrains NeurIPS 2025 "The Complexity Trap" (masking beats summarization)
+//   AFM multi-fidelity (FULL / COMPRESSED / PLACEHOLDER)
+//   Shopify Sidekick (1:10:100 token ratio; tool output is the dominant cost)
+// -----------------------------------------------------------
+
+/** Observation Mask (Layer 1): structured truncation with a metadata header.
+ *  Preserves the tool name, result status, original size, and head+tail of
+ *  the content so the model knows what was truncated and can narrow its next
+ *  query. Only applies to run_lark_cli and read_skill — other tools' results
+ *  are small (manage_schedule, schema). */
+export function maskToolResult(result: string, toolName: string, maxChars: number): string {
+  if (result.length <= maxChars) return result;
+  if (toolName !== 'run_lark_cli' && toolName !== 'read_skill') return result;
+
+  const status =
+    result.startsWith('[') && result.includes(']')
+      ? (result.match(/^\[([^\]]+)\]/)?.[1] ?? '')
+      : '';
+  const headChars = Math.floor(maxChars * 0.5);
+  const tailChars = Math.floor(maxChars * 0.35);
+  const head = result.slice(0, headChars);
+  const tail = result.slice(-tailChars);
+  const omitted = result.length - headChars - tailChars;
+
+  const lines = [
+    `[工具结果已截断] 工具: ${toolName}${status ? ` | 状态: ${status}` : ''} | 原始大小: ${result.length.toLocaleString()} 字符 | 此处保留: ${headChars + tailChars} 字符`,
+    '',
+    head,
+    '',
+    `[... 中间 ${omitted.toLocaleString()} 字符已省略 — 如需完整数据请用工具参数精确筛选 ...]`,
+    '',
+    tail
+  ];
+  return lines.join('\n');
+}
+
+/** Progressive Fidelity Drop (Layer 2): degrade tool results in-place across
+ *  three fidelity tiers as they age. Never touches user or assistant messages
+ *  (preserves the prompt cache prefix). Pure — mutates messages in place.
+ *
+ *         FULL        |      MASKED       |    PLACEHOLDER
+ *  (round 0..mask-1)  |  (mask..archive-1) |  (archive..∞)
+ */
+export function applyFidelityDrop(
+  messages: LlmMessage[],
+  currentRound: number,
+  maskAfter: number,
+  archiveAfter: number
+): void {
+  if (currentRound < maskAfter) return;
+
+  // Walk messages, counting assistant(tool_calls) as round boundaries.
+  let round = 0;
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) round++;
+    if (m.role !== 'tool') continue;
+    if (round === 0) continue; // orphan tool message (shouldn't happen)
+
+    const age = currentRound - round;
+
+    if (age >= archiveAfter) {
+      // PLACEHOLDER: drop content entirely, keep only identity + size.
+      m.content = `[ARCHIVED] ${m.name || 'tool'} (round ${round}, ${m.content.length.toLocaleString()} 字符)`;
+    } else if (age >= maskAfter && m.content.length > 200) {
+      // MASKED: keep a short preview so the model can still reason about
+      // what was done, but drop the bulk.
+      const preview = m.content.replace(/\n/g, ' ').slice(0, 200).trim();
+      m.content = `[MASKED] ${m.name || 'tool'} (round ${round}): ${preview}...`;
+    }
+    // else: FULL — keep as-is (recent rounds)
+  }
+}
+
+// -----------------------------------------------------------
 // Core loop
 // -----------------------------------------------------------
 
@@ -196,6 +282,15 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
       stopReason = 'timeout';
       break;
     }
+
+    // Layer 2: Progressive fidelity drop — demote old tool results to MASKED
+    // or PLACEHOLDER so the linear ballooning from repeated re-sends stops.
+    applyFidelityDrop(
+      messages,
+      round,
+      config.maskToolResultsAfterRounds,
+      config.archiveToolResultsAfterRounds
+    );
 
     // Build messages for this round only (system prompt is NOT persisted)
     const llmMessages: LlmMessage[] = [{ role: 'system', content: systemPrompt }, ...messages];
@@ -259,12 +354,15 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
       const result = await executeTool(tc.name, args, toolCtx);
       toolCallLog.push({ tool: tc.name, args, result });
 
-      // Push tool result into messages BEFORE stuck-guard checks so the
-      // message history always stays valid (assistant tool_calls must be
-      // followed by tool messages per LLM provider requirements).
+      // Layer 1: Observation mask — structured truncation so one giant
+      // JSON dump (e.g. sheets cells-get at 50万 chars) doesn't balloon
+      // every subsequent round's input. Preserves metadata header + head
+      // + tail so the model knows what was truncated and can narrow its
+      // next tool call accordingly.
+      const masked = maskToolResult(result, tc.name, config.toolResultMaxChars);
       messages.push({
         role: 'tool',
-        content: result,
+        content: masked,
         tool_call_id: tc.id,
         name: tc.name
       });
