@@ -1,25 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 
-const HELP_FIXTURE = `lark-cli — Lark/Feishu CLI tool.
-
-Usage:
-  lark-cli <command> [subcommand] [method] [flags]
-
-Lark domains:
-  application Open Platform app self-management: slash commands for the currently bound app
-  calendar    Calendar, event, and attendee management
-  docs        Document and content operations
-  im          Message and group chat management
-
-Agent tooling:
-  something else
-`;
+const SKILLS_FIXTURE = JSON.stringify({
+  ok: true,
+  skills: [
+    { name: 'lark-calendar', description: 'Calendar management', version: '1.0.0' },
+    { name: 'lark-shared', description: 'Auth/setup', version: '1.0.0' }
+  ]
+});
 
 // buildLarkGuide shells out to lark-cli; inject a fake so tests never touch the
 // real binary. Matches the lark-guide.test.ts convention.
 const fakeExec = async (_f: string, args: string[]) => {
   if (args.includes('--version')) return { stdout: 'lark-cli version 1.0.72\n', stderr: '' };
-  return { stdout: HELP_FIXTURE, stderr: '' };
+  return { stdout: SKILLS_FIXTURE, stderr: '' };
 };
 
 describe('buildSystemPrompt', () => {
@@ -28,7 +21,7 @@ describe('buildSystemPrompt', () => {
     const { buildSystemPrompt } = await import('./agent-prompt');
     const prompt = await buildSystemPrompt('你是测试助手。', undefined, fakeExec as any);
     expect(prompt.startsWith('你是测试助手。')).toBe(true);
-    expect(prompt).toContain('Lark 可用域'); // lark guide
+    expect(prompt).toContain('Lark 可用 skill'); // lark guide
     expect(prompt).toContain('当前时间'); // time context
     expect(prompt).toContain('工具使用与任务完成纪律'); // discipline
     // No triggered-run block on the normal (message) path.

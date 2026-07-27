@@ -290,6 +290,18 @@ describe('readSkill / larkSchema', () => {
     expect(out).toContain('SKILL');
   });
 
+  it('readSkill normalises a bare domain to the lark- skill name', async () => {
+    const exec = makeExec([{ stdout: '# lark-calendar SKILL' }]);
+    await readSkill('calendar', ctx, exec as any);
+    expect(exec.mock.calls[0][1]).toEqual([
+      '--profile',
+      'prof1',
+      'skills',
+      'read',
+      'lark-calendar'
+    ]);
+  });
+
   it('larkSchema calls lark-cli schema', async () => {
     const exec = makeExec([{ stdout: '{"name":"x"}' }]);
     await larkSchema('calendar.events.create', ctx, exec as any);

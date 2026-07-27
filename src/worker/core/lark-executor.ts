@@ -257,9 +257,13 @@ export async function readSkill(
   ctx: ToolContext,
   exec: ExecFn = execFileAsync as unknown as ExecFn
 ): Promise<string> {
-  const label = `skills read ${domain}`;
+  // All skills are `lark-*`. Tolerate the agent passing the bare CLI domain it
+  // is reasoning about (e.g. `sheets` / `calendar`) by normalising to the skill
+  // name. The skill index already exposes correct names — this is a backstop.
+  const name = domain && domain.startsWith('lark-') ? domain : `lark-${domain}`;
+  const label = `skills read ${name}`;
   try {
-    const r = await exec(config.larkCliPath, buildArgv(['skills', 'read', domain], ctx), EXEC_OPTS);
+    const r = await exec(config.larkCliPath, buildArgv(['skills', 'read', name], ctx), EXEC_OPTS);
     const failed = interpretIfFailed(r.stdout ?? '', label, ctx);
     if (failed) return failed;
     return r.stdout?.trim() || '(skill 为空)';

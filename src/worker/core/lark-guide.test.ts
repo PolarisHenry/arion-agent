@@ -1,43 +1,39 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseDomainsFromHelp, USAGE_RULES } from './lark-guide';
+import { parseSkillsList, USAGE_RULES } from './lark-guide';
 
-const HELP_FIXTURE = `lark-cli — Lark/Feishu CLI tool.
+const SKILLS_FIXTURE = JSON.stringify({
+  ok: true,
+  skills: [
+    { name: 'lark-calendar', description: 'Calendar management', version: '1.0.0' },
+    { name: 'lark-doc', description: 'Doc operations', version: '1.0.0' },
+    { name: 'lark-shared', description: 'Auth/setup', version: '1.0.0' }
+  ]
+});
 
-Usage:
-  lark-cli <command> [subcommand] [method] [flags]
-
-Lark domains:
-  application Open Platform app self-management: slash commands for the currently bound app
-  calendar    Calendar, event, and attendee management
-  docs        Document and content operations
-  im          Message and group chat management
-
-Agent tooling:
-  something else
-`;
-
-describe('parseDomainsFromHelp', () => {
-  it('extracts the Lark domains block as name + description', () => {
-    const domains = parseDomainsFromHelp(HELP_FIXTURE);
-    expect(domains.map((d) => d.name)).toEqual(['application', 'calendar', 'docs', 'im']);
-    expect(domains[1]).toEqual({
-      name: 'calendar',
-      description: 'Calendar, event, and attendee management'
-    });
+describe('parseSkillsList', () => {
+  it('extracts just the skill names from the { skills: [] } envelope', () => {
+    const skills = parseSkillsList(SKILLS_FIXTURE);
+    expect(skills).toEqual([
+      { name: 'lark-calendar' },
+      { name: 'lark-doc' },
+      { name: 'lark-shared' }
+    ]);
   });
 
-  it('stops at the next section (Agent tooling) and ignores other lines', () => {
-    const domains = parseDomainsFromHelp(HELP_FIXTURE);
-    expect(domains.find((d) => d.name === 'Agent')).toBeUndefined();
+  it('also accepts a bare array payload', () => {
+    const skills = parseSkillsList(JSON.stringify([{ name: 'lark-x', description: 'd' }]));
+    expect(skills).toEqual([{ name: 'lark-x' }]);
   });
 
-  it('returns [] when there is no domains block', () => {
-    expect(parseDomainsFromHelp('no domains here')).toEqual([]);
+  it('drops entries without a name and returns [] on non-JSON / missing skills', () => {
+    expect(parseSkillsList('not json')).toEqual([]);
+    expect(parseSkillsList(JSON.stringify({ ok: true }))).toEqual([]);
+    expect(parseSkillsList(JSON.stringify({ skills: [{ description: 'no name' }] }))).toEqual([]);
   });
 });
 
 describe('buildLarkGuide', () => {
-  it('includes the domain index and the usage rules, memoized by version', async () => {
+  it('includes the skill-name index and the usage rules, memoized by version', async () => {
     // cachedGuide persists across tests in this file — reset modules + dynamic
     // import so this test starts with an empty cache.
     vi.resetModules();
@@ -46,13 +42,16 @@ describe('buildLarkGuide', () => {
     const fakeExec = async (_f: string, args: string[]) => {
       calls++;
       if (args.includes('--version')) return { stdout: 'lark-cli version 1.0.72\n', stderr: '' };
-      return { stdout: HELP_FIXTURE, stderr: '' };
+      return { stdout: SKILLS_FIXTURE, stderr: '' };
     };
     const first = await buildLarkGuide(fakeExec);
     const second = await buildLarkGuide(fakeExec);
-    expect(first).toContain('calendar');
+    expect(first).toContain('lark-calendar');
+    // lark-shared is not a CLI domain — the old --help index hid it; the new
+    // skills-list index must surface it so the agent knows it can read it.
+    expect(first).toContain('lark-shared');
     expect(first).toContain(USAGE_RULES.slice(0, 20));
-    expect(calls).toBe(2); // version + help, once — memoized on second call
+    expect(calls).toBe(2); // version + skills list, once — memoized on second call
     expect(second).toBe(first);
   });
 
