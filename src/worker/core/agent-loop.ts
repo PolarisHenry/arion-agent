@@ -90,6 +90,13 @@ export const WRAP_UP_INSTRUCTIONS: Record<Exclude<StopReason, 'final'>, string> 
 export const WRAP_UP_FALLBACK =
   '（本轮已达到处理上限，任务还没全部完成。回复「继续」我可以接着处理。）';
 
+/** Reply sent to the chat when a whole turn throws (LLM timeout, billing /
+ *  quota, auth, etc.). Without this the user sees the Typing reaction vanish
+ *  and then silence — the error is logged + written to agent_log, but nothing
+ *  reaches the chat. Covers both transient (retry) and persistent (call admin)
+ *  causes in one line. */
+export const TURN_ERROR_FALLBACK = '⚠️ 出错了，请稍后重试，若仍失败请联系管理员。';
+
 // -----------------------------------------------------------
 // Announce-without-acting nudge
 // -----------------------------------------------------------

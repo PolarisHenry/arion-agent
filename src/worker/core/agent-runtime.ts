@@ -14,7 +14,12 @@ import { createLogger } from './logger';
 import { chat } from './llm';
 import { streamTextInChunks, sleep } from './stream-chunk';
 import { getTools, executeTool, type AuthHooks } from './tools';
-import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
+import {
+  runAgentLoop,
+  buildWrapUpMessages,
+  WRAP_UP_FALLBACK,
+  TURN_ERROR_FALLBACK
+} from './agent-loop';
 import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { loadMemoryFacts, renderMemorySection } from './agent-memory';
@@ -418,6 +423,11 @@ export class AgentRuntime {
       log.error(`handle message error: ${err?.message ?? err}`);
       // Clean up the reaction on error path too
       if (reactionId) this.channel.removeReaction(msg.messageId, reactionId).catch(() => {});
+      // Don't leave the user in silence — the error is logged + recorded, but
+      // without an explicit reply the chat just sees the Typing reaction vanish.
+      // Best-effort: streamReply degrades to a plain send on failure and never
+      // throws, so a Feishu outage here can't mask the original error handling.
+      await this.streamReply(chatId, TURN_ERROR_FALLBACK, msg.messageId);
       await writeLog({
         agentId: this.agentId,
         ownerId: this.agentRow.ownerId,
