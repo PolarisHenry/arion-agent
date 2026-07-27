@@ -241,7 +241,7 @@ export function applyFidelityDrop(
  *
  *  Normal exit: model returns a response with no tool_calls → stopReason 'final'.
  *  Any other exit: stopReason reflects what tripped; caller should follow up
- *  with buildWrapUpMessages() + a tool-free streamChat to report progress. */
+ *  with buildWrapUpMessages() + a tool-free chat to report progress. */
 export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
   const { chat, executeTool, tools, systemPrompt, initialMessages, policy, onInterim, toolCtx } =
     deps;

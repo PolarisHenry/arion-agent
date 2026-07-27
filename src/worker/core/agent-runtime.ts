@@ -11,7 +11,8 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { workerDb, agentSchema } from '../worker-db';
 import { config } from '../config';
 import { createLogger } from './logger';
-import { chat, streamChat } from './llm';
+import { chat } from './llm';
+import { streamTextInChunks, sleep } from './stream-chunk';
 import { getTools, executeTool, type AuthHooks } from './tools';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
 import { resolveLoopPolicy } from './agent-policy';
@@ -33,6 +34,12 @@ type Message = {
   tool_call_id?: string;
   name?: string;
 };
+
+/** Typewriter cadence for streamReply: each streamed piece is at most this many
+ *  characters, with this many ms between pieces. Local chunking of already-
+ *  generated text — no model call, so what the log records is what ships. */
+const STREAM_CHUNK_MAX_CHARS = 40;
+const STREAM_CHUNK_DELAY_MS = 20;
 
 // Build a "current time" context string in the configured timezone, appended to
 // the system prompt so the model knows the real today/year for relative-time
@@ -345,78 +352,42 @@ export class AgentRuntime {
       let totalTokens = loopResult.totalTokens;
 
       if (loopResult.stopReason === 'final') {
-        // Natural final answer — stream via streamChat for typewriter effect.
         if (!finalResponse.trim()) {
           finalResponse = '好的，已处理。';
         }
-
-        try {
-          await this.channel.stream(
-            msg.chatId,
-            {
-              markdown: async (c) => {
-                const streamingResp = await streamChat(
-                  llmConfig,
-                  [{ role: 'system', content: systemPrompt }, ...loopResult.messages],
-                  undefined,
-                  (chunk) => c.append(chunk)
-                );
-                if (streamingResp.content) {
-                  finalResponse = streamingResp.content;
-                }
-                totalTokens += streamingResp.usage.totalTokens;
-              }
-            },
-            { replyTo: msg.messageId }
-          );
-        } catch (sendErr: any) {
-          log.error(`stream error: ${sendErr?.message ?? sendErr}`);
-          try {
-            await this.channel.reply(msg, { markdown: finalResponse });
-          } catch {
-            // best effort
-          }
-        }
+        // Stream the ALREADY-GENERATED finalContent with a local typewriter
+        // cadence. Do NOT re-call the model: agent-loop breaks before pushing
+        // the final answer into `messages`, so a second LLM call would have to
+        // re-derive it from an incomplete history — and when that second call
+        // yielded no usable prose (empty content, or DSML tool-call markup the
+        // stream filter strips to nothing) the channel received zero appends
+        // and rendered the "(no content)" placeholder. Streaming finalContent
+        // directly keeps the logged response and the delivered message identical.
+        await this.streamReply(msg.chatId, finalResponse, msg.messageId);
       } else {
-        // Non-final stop — run a tool-free wrap-up to report progress honestly.
+        // Non-final stop — the loop hit a guardrail (budget / timeout /
+        // repetition / error-streak / round-ceiling). Generate ONE tool-free
+        // wrap-up so the model honestly reports what got done, then deliver it
+        // via streamReply so the message is never empty and never re-streams a
+        // second model call straight into the channel.
         const wrapUpMessages = buildWrapUpMessages(
           systemPrompt,
           loopResult.messages,
           loopResult.stopReason
         );
-        let delivered = false;
         try {
-          await this.channel.stream(
-            chatId,
-            {
-              markdown: async (c) => {
-                const streamingResp = await streamChat(
-                  llmConfig,
-                  wrapUpMessages,
-                  undefined,
-                  (chunk) => c.append(chunk)
-                );
-                if (streamingResp.content) {
-                  finalResponse = streamingResp.content;
-                }
-              }
-            },
-            { replyTo: msg.messageId }
-          );
-          delivered = true;
-        } catch (sendErr: any) {
-          log.error(`wrap-up stream failed: ${sendErr?.message ?? sendErr}`);
+          const wrapUpResp = await chat(llmConfig, wrapUpMessages);
+          if (wrapUpResp.content) {
+            finalResponse = wrapUpResp.content;
+          }
+          totalTokens += wrapUpResp.usage.totalTokens;
+        } catch (wrapErr: any) {
+          log.error(`wrap-up generation failed: ${wrapErr?.message ?? wrapErr}`);
         }
         if (!finalResponse.trim()) {
           finalResponse = WRAP_UP_FALLBACK;
         }
-        if (!delivered) {
-          try {
-            await this.channel.send(chatId, { markdown: finalResponse });
-          } catch (sendErr: any) {
-            log.error(`wrap-up fallback send failed: ${sendErr?.message ?? sendErr}`);
-          }
-        }
+        await this.streamReply(chatId, finalResponse, msg.messageId, WRAP_UP_FALLBACK);
       }
 
       // Persist the final assistant message
@@ -461,6 +432,47 @@ export class AgentRuntime {
 
     // Remove the typing reaction when we're done
     if (reactionId) this.channel.removeReaction(msg.messageId, reactionId).catch(() => {});
+  }
+
+  /** Deliver an already-generated reply with a local typewriter cadence,
+   *  WITHOUT re-invoking the model. Guarantees the delivered message is never
+   *  empty: blank `text` falls back to `fallback`, and a streaming failure
+   *  (card instance / content update / network) is retried as a single
+   *  non-streaming markdown send so the turn still replies. This is what keeps
+   *  the logged `finalResponse` and the message Feishu actually receives
+   *  identical — the original bug was a second model call that could emit zero
+   *  appends, making the channel render "(no content)". */
+  private async streamReply(
+    chatId: string,
+    text: string,
+    replyTo: string,
+    fallback: string = WRAP_UP_FALLBACK
+  ): Promise<void> {
+    const replyLog = createLogger(this.logTag);
+    const content = text.trim() || fallback;
+    try {
+      await this.channel.stream(
+        chatId,
+        {
+          markdown: async (c) => {
+            await streamTextInChunks(content, (piece) => c.append(piece), sleep, {
+              maxChars: STREAM_CHUNK_MAX_CHARS,
+              delayMs: STREAM_CHUNK_DELAY_MS
+            });
+          }
+        },
+        { replyTo }
+      );
+    } catch (streamErr: any) {
+      replyLog.error(
+        `stream reply failed, falling back to send: ${streamErr?.message ?? streamErr}`
+      );
+      try {
+        await this.channel.send(chatId, { markdown: content });
+      } catch (sendErr: any) {
+        replyLog.error(`stream reply fallback send also failed: ${sendErr?.message ?? sendErr}`);
+      }
+    }
   }
 
   /**
