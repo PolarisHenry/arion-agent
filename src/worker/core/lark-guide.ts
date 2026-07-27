@@ -21,6 +21,7 @@ export const USAGE_RULES = [
   '- skill 名去掉 `lark-` 前缀就是 run_lark_cli 的域：`lark-sheets` → 域 `sheets`。',
   '- 身份选择以该操作 skill 的标注为准（支持 user / bot / 仅 user / 仅 bot）。不确定时先 `read_skill` 读该 skill 说明，按它说的选 `--as user` 或 `--as bot`，不要凭感觉猜。',
   '- 高危操作（high-risk-write）：run_lark_cli 第一次会自动走 `--dry-run` 返回预览；你确认预览与用户意图一致后，带 `--yes` 再调一次才真正执行。',
+  '- **查询优先带条件，别全量拉取。** list/查询类命令（日程、表格记录、任务、消息历史等）先按时间范围 / 字段 / 关键词 / 筛选条件收窄，再用 `--jq` 只取需要的字段；范围确认小了再深入。绝不一上来 list 全表全量——返回过大会拖慢、爆 token。不确定支持哪些过滤参数时，先调 schema 工具查。',
   '- 输出默认 JSON；可用 `--jq` 精简、`--format json`。'
 ].join('\n');
 
