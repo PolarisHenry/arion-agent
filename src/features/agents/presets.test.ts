@@ -39,23 +39,18 @@ describe('personalizePresetPrompt', () => {
 });
 
 describe('matchPresetId', () => {
-  it('every preset is uniquely identifiable, including the new lifestyle ones', () => {
+  it('every preset is uniquely identifiable', () => {
     // If any two presets shared a normalized full text or structured body,
-    // matchPresetId would return the earlier one and this would fail — so this
-    // also guards the 3 new presets against colliding with existing ones.
+    // matchPresetId would return the earlier one and this would fail.
     for (const { id, systemPrompt } of AGENT_PRESETS) {
       expect(matchPresetId(systemPrompt)).toBe(id);
     }
-    expect(AGENT_PRESETS.find((p) => p.id === 'personal-doctor')).toBeDefined();
-    expect(AGENT_PRESETS.find((p) => p.id === 'nutritionist')).toBeDefined();
-    expect(AGENT_PRESETS.find((p) => p.id === 'fitness-coach')).toBeDefined();
   });
 
   it('still matches after the intro is personalized with a name', () => {
-    const doctor = AGENT_PRESETS.find((p) => p.id === 'personal-doctor')!;
-    expect(matchPresetId(personalizePresetPrompt(doctor.systemPrompt, '阿明'))).toBe(
-      'personal-doctor'
-    );
+    for (const { id, systemPrompt } of AGENT_PRESETS) {
+      expect(matchPresetId(personalizePresetPrompt(systemPrompt, '阿明'))).toBe(id);
+    }
   });
 
   it('returns empty string for a prompt matching no preset', () => {
