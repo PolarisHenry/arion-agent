@@ -24,6 +24,7 @@ export type LlmModelFilters = {
   limit?: number;
   search?: string;
   sort?: string;
+  order?: 'asc' | 'desc';
 };
 
 export type LlmModelsResponse = {

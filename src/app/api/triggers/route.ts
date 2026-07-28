@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { agentTrigger, agent } from '@/lib/agent-schema';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { requirePermission, UnauthorizedError, ForbiddenError } from '@/lib/rbac/check';
 import { PERMISSIONS } from '@/lib/rbac/permissions';
 
@@ -35,7 +35,8 @@ export async function GET(_request: NextRequest) {
       })
       .from(agentTrigger)
       .innerJoin(agent, eq(agentTrigger.agentId, agent.id))
-      .where(eq(agentTrigger.ownerId, tenantId));
+      .where(eq(agentTrigger.ownerId, tenantId))
+      .orderBy(desc(agentTrigger.createdAt));
 
     return NextResponse.json({
       triggers: rows.map((r) => ({

@@ -949,7 +949,8 @@ export const translations = {
     'Scheduled tasks run the agent automatically at the cron time. Agents can also create these via chat.':
       'Scheduled tasks run the agent or send a reminder at the scheduled time. Agents can also create these via chat.',
     'No triggers yet. Ask an agent in chat to set one up, or create one here.':
-      'No triggers yet. Ask an agent in chat to set one up, or create one here.'
+      'No triggers yet. Ask an agent in chat to set one up, or create one here.',
+    'No triggers in this status': 'No triggers in this status'
   },
   zh: {
     // Nav groups & labels
@@ -1857,7 +1858,8 @@ export const translations = {
     'Scheduled tasks run the agent automatically at the cron time. Agents can also create these via chat.':
       '定时任务会按设定时间运行智能体或发送提醒。智能体也可以在对话中创建。',
     'No triggers yet. Ask an agent in chat to set one up, or create one here.':
-      '暂无定时任务。在对话里让智能体设置,或在此手动创建。'
+      '暂无定时任务。在对话里让智能体设置,或在此手动创建。',
+    'No triggers in this status': '该状态下暂无定时任务'
   }
 };
 

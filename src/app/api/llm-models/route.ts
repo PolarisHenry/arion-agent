@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { db } from '@/lib/db';
 import { llmModel } from '@/lib/agent-schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 import { requirePermission, UnauthorizedError, ForbiddenError } from '@/lib/rbac/check';
 import { PERMISSIONS } from '@/lib/rbac/permissions';
 import { encryptSecret, decryptSecret, maskSecret } from '@/lib/crypto';
@@ -40,8 +40,17 @@ export async function GET(request: NextRequest) {
     const page = Number(searchParams.get('page') ?? 1);
     const limit = Number(searchParams.get('limit') ?? 10);
     const search = searchParams.get('search') ?? '';
+    // Server-side sort. Whitelist to the columns the table exposes as sortable;
+    // anything else (or no param) falls back to createdAt desc (newest first).
+    const sortParam = searchParams.get('sort') ?? '';
+    const orderParam = searchParams.get('order') ?? 'desc';
+    const sortCol = sortParam === 'name' ? llmModel.name : llmModel.createdAt;
 
-    const rows = await db.select().from(llmModel).where(eq(llmModel.ownerId, tenantId));
+    const rows = await db
+      .select()
+      .from(llmModel)
+      .where(eq(llmModel.ownerId, tenantId))
+      .orderBy(orderParam === 'asc' ? asc(sortCol) : desc(sortCol));
     let models = rows.map(toModel);
     if (search) {
       const s = search.toLowerCase();

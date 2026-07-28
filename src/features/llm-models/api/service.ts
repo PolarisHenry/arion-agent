@@ -9,6 +9,8 @@ export async function getLlmModels(
   if (filters.page) params.set('page', String(filters.page));
   if (filters.limit) params.set('limit', String(filters.limit));
   if (filters.search) params.set('search', filters.search);
+  if (filters.sort) params.set('sort', filters.sort);
+  if (filters.order) params.set('order', filters.order);
 
   const res = await fetch(`${apiBaseUrl()}/api/llm-models?${params.toString()}`, {
     headers: opts.headers

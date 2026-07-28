@@ -18,7 +18,13 @@ export type Agent = {
   updatedAt: string;
 };
 
-export type AgentFilters = { page?: number; limit?: number; search?: string; sort?: string };
+export type AgentFilters = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+};
 
 export type AgentsResponse = {
   success: boolean;

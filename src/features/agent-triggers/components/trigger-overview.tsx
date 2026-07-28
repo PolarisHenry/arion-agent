@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSuspenseQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Icons } from '@/components/icons';
 import { useTranslation } from '@/lib/i18n';
 import { formatDateTimeTz } from '@/lib/format';
@@ -15,7 +16,7 @@ import { allTriggersQueryOptions } from '../api/queries';
 import { updateTriggerMutation, deleteTriggerMutation } from '../api/mutations';
 import { TriggerFormSheet } from './trigger-form-sheet';
 import { deriveTriggerStatus } from '../api/types';
-import type { TriggerWithAgent } from '../api/types';
+import type { TriggerStatus, TriggerWithAgent } from '../api/types';
 
 export function TriggerOverview() {
   const { t } = useTranslation();
@@ -23,6 +24,9 @@ export function TriggerOverview() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TriggerWithAgent | null>(null);
+  // Status tabs match the derived lifecycle (active / paused / completed).
+  // Default to 运行中 (active) — that's the set you usually want to act on.
+  const [statusTab, setStatusTab] = useState<TriggerStatus>('active');
 
   const updateMutation = useMutation({
     ...updateTriggerMutation,
@@ -61,6 +65,13 @@ export function TriggerOverview() {
     deleteMutation.mutate({ agentId: trigger.agentId, triggerId: trigger.id });
   };
 
+  const counts = useMemo(() => {
+    const c: Record<TriggerStatus, number> = { active: 0, paused: 0, completed: 0 };
+    for (const tr of triggers) c[deriveTriggerStatus(tr)]++;
+    return c;
+  }, [triggers]);
+  const visible = triggers.filter((tr) => deriveTriggerStatus(tr) === statusTab);
+
   return (
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
@@ -79,82 +90,110 @@ export function TriggerOverview() {
           {t('No triggers yet. Ask an agent in chat to set one up, or create one here.')}
         </div>
       ) : (
-        <div className='space-y-2'>
-          {triggers.map((tr) => {
-            const status = deriveTriggerStatus(tr);
-            const isReminder = tr.kind === 'reminder';
-            const content = (isReminder ? tr.message : tr.prompt) ?? '';
-            return (
-              <div
-                key={tr.id}
-                className='flex items-center justify-between gap-3 rounded-lg border p-3'
-              >
-                <div className='min-w-0 flex-1 space-y-1'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Badge variant='secondary' className='text-xs'>
-                      {tr.agentName}
-                    </Badge>
-                    <Badge variant='outline' className='text-xs'>
-                      {isReminder ? t('Reminder') : t('Task')}
-                    </Badge>
-                    <span className='truncate font-medium'>{tr.name}</span>
-                    {status === 'completed' && (
-                      <span className='text-muted-foreground text-xs'>({t('Completed')})</span>
-                    )}
-                    {status === 'paused' && (
-                      <span className='text-muted-foreground text-xs'>({t('Paused')})</span>
-                    )}
-                  </div>
-                  <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
-                    {tr.fireAt ? (
-                      <span>
-                        {t('One-shot')} · {formatDateTimeTz(tr.fireAt)}
-                      </span>
-                    ) : (
-                      <span className='font-mono'>{tr.cron ?? '—'}</span>
-                    )}
-                    {tr.workdaysOnly && (
-                      <Badge variant='outline' className='text-xs'>
-                        {t('Workdays only')}
-                      </Badge>
-                    )}
-                    {tr.targetChatId && <span className='truncate'>→ {tr.targetChatId}</span>}
-                  </div>
-                  {content && <p className='text-muted-foreground truncate text-xs'>{content}</p>}
-                  <div className='text-muted-foreground text-xs'>
-                    {t('Last Run')}: {tr.lastRunAt ? formatDateTimeTz(tr.lastRunAt) : t('Never')}
-                  </div>
-                </div>
-                <div className='flex items-center gap-1'>
-                  {status === 'completed' ? (
-                    <span className='text-muted-foreground mr-1 text-xs'>{t('Completed')}</span>
-                  ) : (
-                    <Checkbox
-                      checked={tr.enabled}
-                      onCheckedChange={() => toggleEnabled(tr)}
-                      aria-label={t('Enabled')}
-                    />
-                  )}
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    onClick={() => openEdit(tr)}
-                    aria-label={t('Edit')}
+        <div className='space-y-3'>
+          <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as TriggerStatus)}>
+            <TabsList>
+              <TabsTrigger value='active'>
+                {t('active')}
+                <span className='text-muted-foreground ml-1 text-xs'>({counts.active})</span>
+              </TabsTrigger>
+              <TabsTrigger value='paused'>
+                {t('Paused')}
+                <span className='text-muted-foreground ml-1 text-xs'>({counts.paused})</span>
+              </TabsTrigger>
+              <TabsTrigger value='completed'>
+                {t('Completed')}
+                <span className='text-muted-foreground ml-1 text-xs'>({counts.completed})</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {visible.length === 0 ? (
+            <div className='text-muted-foreground rounded-lg border border-dashed p-6 text-center text-xs'>
+              {t('No triggers in this status')}
+            </div>
+          ) : (
+            <div className='space-y-2'>
+              {visible.map((tr) => {
+                const status = deriveTriggerStatus(tr);
+                const isReminder = tr.kind === 'reminder';
+                const content = (isReminder ? tr.message : tr.prompt) ?? '';
+                return (
+                  <div
+                    key={tr.id}
+                    className='flex items-center justify-between gap-3 rounded-lg border p-3'
                   >
-                    <Icons.edit className='h-4 w-4' />
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    onClick={() => handleDelete(tr)}
-                    aria-label={t('Delete')}
-                  >
-                    <Icons.trash className='h-4 w-4' />
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+                    <div className='min-w-0 flex-1 space-y-1'>
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <Badge variant='secondary' className='text-xs'>
+                          {tr.agentName}
+                        </Badge>
+                        <Badge variant='outline' className='text-xs'>
+                          {isReminder ? t('Reminder') : t('Task')}
+                        </Badge>
+                        <span className='truncate font-medium'>{tr.name}</span>
+                        {status === 'completed' && (
+                          <span className='text-muted-foreground text-xs'>({t('Completed')})</span>
+                        )}
+                        {status === 'paused' && (
+                          <span className='text-muted-foreground text-xs'>({t('Paused')})</span>
+                        )}
+                      </div>
+                      <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+                        {tr.fireAt ? (
+                          <span>
+                            {t('One-shot')} · {formatDateTimeTz(tr.fireAt)}
+                          </span>
+                        ) : (
+                          <span className='font-mono'>{tr.cron ?? '—'}</span>
+                        )}
+                        {tr.workdaysOnly && (
+                          <Badge variant='outline' className='text-xs'>
+                            {t('Workdays only')}
+                          </Badge>
+                        )}
+                        {tr.targetChatId && <span className='truncate'>→ {tr.targetChatId}</span>}
+                      </div>
+                      {content && (
+                        <p className='text-muted-foreground truncate text-xs'>{content}</p>
+                      )}
+                      <div className='text-muted-foreground text-xs'>
+                        {t('Last Run')}:{' '}
+                        {tr.lastRunAt ? formatDateTimeTz(tr.lastRunAt) : t('Never')}
+                      </div>
+                    </div>
+                    <div className='flex items-center gap-1'>
+                      {status === 'completed' ? (
+                        <span className='text-muted-foreground mr-1 text-xs'>{t('Completed')}</span>
+                      ) : (
+                        <Checkbox
+                          checked={tr.enabled}
+                          onCheckedChange={() => toggleEnabled(tr)}
+                          aria-label={t('Enabled')}
+                        />
+                      )}
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        onClick={() => openEdit(tr)}
+                        aria-label={t('Edit')}
+                      >
+                        <Icons.edit className='h-4 w-4' />
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        onClick={() => handleDelete(tr)}
+                        aria-label={t('Delete')}
+                      >
+                        <Icons.trash className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

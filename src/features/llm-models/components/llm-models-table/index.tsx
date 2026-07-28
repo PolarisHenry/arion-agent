@@ -15,13 +15,22 @@ export function LlmModelsTable() {
     page: parseAsInteger.withDefault(1),
     perPage: parseAsInteger.withDefault(10),
     name: parseAsString,
-    sort: getSortingStateParser([]).withDefault([])
+    // Match the columns the table actually marks sortable; `[]` here would make
+    // the parser reject every sort id and leave params.sort permanently empty.
+    sort: getSortingStateParser(['name', 'createdAt']).withDefault([])
   });
 
+  const firstSort = params.sort[0];
   const filters = {
     page: params.page,
     limit: params.perPage,
-    ...(params.name && { search: params.name })
+    ...(params.name && { search: params.name }),
+    // Including sort/order in `filters` also bakes them into the query key, so
+    // React Query refetches when the URL sort changes (manualSorting is server-side).
+    ...(firstSort && {
+      sort: String(firstSort.id),
+      order: (firstSort.desc ? 'desc' : 'asc') as 'asc' | 'desc'
+    })
   };
 
   const { data } = useSuspenseQuery(llmModelsQueryOptions(filters));
