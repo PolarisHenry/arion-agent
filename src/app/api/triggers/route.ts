@@ -20,10 +20,15 @@ export async function GET(_request: NextRequest) {
         agentId: agentTrigger.agentId,
         agentName: agent.name,
         name: agentTrigger.name,
+        kind: agentTrigger.kind,
         cron: agentTrigger.cron,
+        fireAt: agentTrigger.fireAt,
         prompt: agentTrigger.prompt,
+        message: agentTrigger.message,
         targetChatId: agentTrigger.targetChatId,
         enabled: agentTrigger.enabled,
+        completedAt: agentTrigger.completedAt,
+        workdaysOnly: agentTrigger.workdaysOnly,
         lastRunAt: agentTrigger.lastRunAt,
         createdAt: agentTrigger.createdAt,
         updatedAt: agentTrigger.updatedAt
@@ -35,6 +40,8 @@ export async function GET(_request: NextRequest) {
     return NextResponse.json({
       triggers: rows.map((r) => ({
         ...r,
+        fireAt: r.fireAt?.toISOString() ?? null,
+        completedAt: r.completedAt?.toISOString() ?? null,
         lastRunAt: r.lastRunAt?.toISOString() ?? null,
         createdAt: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString()

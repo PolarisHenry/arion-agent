@@ -12,7 +12,7 @@ export type LogEntry = {
   agentId: string;
   ownerId: string;
   chatId?: string;
-  type: 'message' | 'trigger' | 'tool';
+  type: 'message' | 'trigger' | 'tool' | 'reminder';
   messageContent?: string;
   responseContent?: string;
   toolCalls?: { tool: string; args: unknown; result?: string }[];

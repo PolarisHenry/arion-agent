@@ -29,15 +29,25 @@ import { localizeApiError } from '@/lib/api-client';
 import { getQueryClient } from '@/lib/query-client';
 import { createTriggerMutation, updateTriggerMutation } from '../api/mutations';
 import { agentsQueryOptions } from '@/features/agents/api/queries';
-import type { AgentTrigger, TriggerMutationPayload } from '../api/types';
+import type { AgentTrigger, TriggerKind, TriggerMutationPayload } from '../api/types';
 
-// Cron presets selectable in the form.
+// Cron presets selectable when the schedule is recurring.
 const CRON_PRESETS: { key: string; cron: string }[] = [
   { key: 'Every hour', cron: '0 * * * *' },
   { key: 'Every day at 9am', cron: '0 9 * * *' },
   { key: 'Weekdays 9am', cron: '0 9 * * 1-5' },
   { key: 'Every minute (test)', cron: '* * * * *' }
 ];
+
+/** Convert an ISO timestamp to the YYYY-MM-DDTHH:mm value a datetime-local
+ *  input expects (in the browser's local timezone). */
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 interface TriggerFormSheetProps {
   /** Agent to create the trigger under. Required in edit mode (use trigger.agentId);
@@ -58,9 +68,17 @@ export function TriggerFormSheet({ agentId, trigger, open, onOpenChange }: Trigg
 
   const [selectedAgentId, setSelectedAgentId] = useState(fixedAgentId ?? agents[0]?.id ?? '');
   const [name, setName] = useState(trigger?.name ?? '');
+  const [kind, setKind] = useState<TriggerKind>(trigger?.kind ?? 'task');
+  // Schedule type is derived from which field the stored trigger uses.
+  const [scheduleType, setScheduleType] = useState<'recurring' | 'one-shot'>(
+    trigger?.fireAt ? 'one-shot' : 'recurring'
+  );
   const [cronExpr, setCronExpr] = useState(trigger?.cron ?? '0 9 * * *');
+  const [fireAtInput, setFireAtInput] = useState(isoToLocalInput(trigger?.fireAt ?? null));
   const [prompt, setPrompt] = useState(trigger?.prompt ?? '');
+  const [message, setMessage] = useState(trigger?.message ?? '');
   const [targetChatId, setTargetChatId] = useState(trigger?.targetChatId ?? '');
+  const [workdaysOnly, setWorkdaysOnly] = useState(trigger?.workdaysOnly ?? false);
   const [enabled, setEnabled] = useState(trigger?.enabled ?? true);
 
   const createMutation = useMutation({
@@ -88,8 +106,16 @@ export function TriggerFormSheet({ agentId, trigger, open, onOpenChange }: Trigg
     if (!targetAgentId) return;
     const values: TriggerMutationPayload = {
       name: name.trim(),
-      cron: cronExpr.trim(),
-      prompt: prompt.trim(),
+      kind,
+      ...(scheduleType === 'one-shot'
+        ? {
+            cron: null,
+            fireAt: fireAtInput ? new Date(fireAtInput).toISOString() : null
+          }
+        : { cron: cronExpr.trim(), fireAt: null, workdaysOnly }),
+      ...(kind === 'reminder'
+        ? { message: message.trim(), prompt: null }
+        : { prompt: prompt.trim(), message: null }),
       targetChatId: targetChatId.trim() || null,
       enabled
     };
@@ -101,11 +127,12 @@ export function TriggerFormSheet({ agentId, trigger, open, onOpenChange }: Trigg
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
+  const scheduleOk = scheduleType === 'one-shot' ? fireAtInput !== '' : cronExpr.trim() !== '';
+  const contentOk = kind === 'reminder' ? message.trim() !== '' : prompt.trim() !== '';
+  // A reminder with no recipient has nowhere to go.
+  const targetOk = kind === 'task' || targetChatId.trim() !== '';
   const canSubmit =
-    (isEdit || selectedAgentId !== '') &&
-    name.trim() !== '' &&
-    cronExpr.trim() !== '' &&
-    prompt.trim() !== '';
+    (isEdit || selectedAgentId !== '') && name.trim() !== '' && scheduleOk && contentOk && targetOk;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -144,60 +171,139 @@ export function TriggerFormSheet({ agentId, trigger, open, onOpenChange }: Trigg
             />
           </div>
 
+          {/* Kind: reminder (fixed message, no LLM) vs task (agent turn). */}
           <div className='space-y-2'>
-            <Label htmlFor='trigger-cron'>{t('Schedule (Cron)')}</Label>
-            <Input
-              id='trigger-cron'
-              value={cronExpr}
-              onChange={(e) => setCronExpr(e.target.value)}
-              placeholder='0 9 * * *'
-              className='font-mono'
-            />
-            <div className='flex flex-wrap gap-2'>
-              {CRON_PRESETS.map((p) => (
+            <Label>{t('Kind')}</Label>
+            <div className='flex gap-2'>
+              {(['task', 'reminder'] as const).map((k) => (
                 <Button
-                  key={p.cron}
+                  key={k}
                   type='button'
-                  variant={cronExpr === p.cron ? 'default' : 'outline'}
+                  variant={kind === k ? 'default' : 'outline'}
                   size='sm'
-                  onClick={() => setCronExpr(p.cron)}
+                  onClick={() => setKind(k)}
                 >
-                  {t(p.key)}
+                  {k === 'reminder' ? t('Reminder') : t('Task')}
                 </Button>
               ))}
             </div>
             <p className='text-muted-foreground text-xs'>
-              {t('5-field standard cron (min hour day month weekday)')}
+              {kind === 'reminder'
+                ? t('Reminder: send a fixed message at fire time — no LLM runs.')
+                : t('Task: run the agent with its tools at fire time.')}
             </p>
           </div>
 
+          {/* Schedule type: recurring (cron) vs one-shot (fireAt datetime). */}
           <div className='space-y-2'>
-            <Label htmlFor='trigger-prompt'>{t('Prompt')}</Label>
-            <Textarea
-              id='trigger-prompt'
-              rows={5}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder={t('The message sent to the agent when this trigger fires')}
-            />
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'When fired, this prompt runs the agent with its enabled tools; the result is sent to the target chat.'
-              )}
-            </p>
+            <Label>{t('Schedule')}</Label>
+            <div className='flex gap-2'>
+              {(['recurring', 'one-shot'] as const).map((s) => (
+                <Button
+                  key={s}
+                  type='button'
+                  variant={scheduleType === s ? 'default' : 'outline'}
+                  size='sm'
+                  onClick={() => setScheduleType(s)}
+                >
+                  {s === 'one-shot' ? t('One-shot') : t('Recurring')}
+                </Button>
+              ))}
+            </div>
           </div>
 
+          {scheduleType === 'recurring' ? (
+            <div className='space-y-2'>
+              <Label htmlFor='trigger-cron'>{t('Schedule (Cron)')}</Label>
+              <Input
+                id='trigger-cron'
+                value={cronExpr}
+                onChange={(e) => setCronExpr(e.target.value)}
+                placeholder='0 9 * * *'
+                className='font-mono'
+              />
+              <div className='flex flex-wrap gap-2'>
+                {CRON_PRESETS.map((p) => (
+                  <Button
+                    key={p.cron}
+                    type='button'
+                    variant={cronExpr === p.cron ? 'default' : 'outline'}
+                    size='sm'
+                    onClick={() => setCronExpr(p.cron)}
+                  >
+                    {t(p.key)}
+                  </Button>
+                ))}
+              </div>
+              <label className='flex cursor-pointer items-center gap-2'>
+                <Checkbox
+                  checked={workdaysOnly}
+                  onCheckedChange={(v) => setWorkdaysOnly(v === true)}
+                />
+                <span className='text-sm'>{t('Workdays only')}</span>
+              </label>
+              <p className='text-muted-foreground text-xs'>
+                {t('Skip Chinese statutory holidays; 调休 make-up days still fire.')}
+              </p>
+            </div>
+          ) : (
+            <div className='space-y-2'>
+              <Label htmlFor='trigger-fireat'>{t('Fire At')}</Label>
+              <Input
+                id='trigger-fireat'
+                type='datetime-local'
+                value={fireAtInput}
+                onChange={(e) => setFireAtInput(e.target.value)}
+              />
+              <p className='text-muted-foreground text-xs'>
+                {t('Fires once at this time, then transitions to completed.')}
+              </p>
+            </div>
+          )}
+
+          {/* Kind-specific content: reminder = message, task = prompt. */}
+          {kind === 'reminder' ? (
+            <div className='space-y-2'>
+              <Label htmlFor='trigger-message'>{t('Message')}</Label>
+              <Textarea
+                id='trigger-message'
+                rows={5}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder={t('The fixed text sent verbatim when this reminder fires')}
+              />
+            </div>
+          ) : (
+            <div className='space-y-2'>
+              <Label htmlFor='trigger-prompt'>{t('Prompt')}</Label>
+              <Textarea
+                id='trigger-prompt'
+                rows={5}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder={t('The instruction fed to the agent when this task fires')}
+              />
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'When fired, this prompt runs the agent with its enabled tools; the result is sent to the recipient.'
+                )}
+              </p>
+            </div>
+          )}
+
           <div className='space-y-2'>
-            <Label htmlFor='trigger-chat'>{t('Target Chat ID')}</Label>
+            <Label htmlFor='trigger-chat'>{t('Recipient')}</Label>
             <Input
               id='trigger-chat'
               value={targetChatId}
               onChange={(e) => setTargetChatId(e.target.value)}
-              placeholder={t('oc_... (leave blank to skip sending)')}
+              placeholder={t('oc_… (chat) / ou_… (user open_id)')}
               className='font-mono'
             />
             <p className='text-muted-foreground text-xs'>
-              {t('Leave blank to run the agent without sending the result')}
+              {kind === 'reminder'
+                ? t('Who the reminder is sent to. Required for reminders.')
+                : t('Where the task result is sent. Leave blank to run without sending.')}
             </p>
           </div>
 

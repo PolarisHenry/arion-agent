@@ -14,6 +14,7 @@ import { getQueryClient } from '@/lib/query-client';
 import { allTriggersQueryOptions } from '../api/queries';
 import { updateTriggerMutation, deleteTriggerMutation } from '../api/mutations';
 import { TriggerFormSheet } from './trigger-form-sheet';
+import { deriveTriggerStatus } from '../api/types';
 import type { TriggerWithAgent } from '../api/types';
 
 export function TriggerOverview() {
@@ -79,55 +80,81 @@ export function TriggerOverview() {
         </div>
       ) : (
         <div className='space-y-2'>
-          {triggers.map((tr) => (
-            <div
-              key={tr.id}
-              className='flex items-center justify-between gap-3 rounded-lg border p-3'
-            >
-              <div className='min-w-0 flex-1 space-y-1'>
-                <div className='flex items-center gap-2'>
-                  <Badge variant='secondary' className='text-xs'>
-                    {tr.agentName}
-                  </Badge>
-                  <span className='truncate font-medium'>{tr.name}</span>
-                  {!tr.enabled && (
-                    <span className='text-muted-foreground text-xs'>({t('Disabled')})</span>
+          {triggers.map((tr) => {
+            const status = deriveTriggerStatus(tr);
+            const isReminder = tr.kind === 'reminder';
+            const content = (isReminder ? tr.message : tr.prompt) ?? '';
+            return (
+              <div
+                key={tr.id}
+                className='flex items-center justify-between gap-3 rounded-lg border p-3'
+              >
+                <div className='min-w-0 flex-1 space-y-1'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <Badge variant='secondary' className='text-xs'>
+                      {tr.agentName}
+                    </Badge>
+                    <Badge variant='outline' className='text-xs'>
+                      {isReminder ? t('Reminder') : t('Task')}
+                    </Badge>
+                    <span className='truncate font-medium'>{tr.name}</span>
+                    {status === 'completed' && (
+                      <span className='text-muted-foreground text-xs'>({t('Completed')})</span>
+                    )}
+                    {status === 'paused' && (
+                      <span className='text-muted-foreground text-xs'>({t('Paused')})</span>
+                    )}
+                  </div>
+                  <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
+                    {tr.fireAt ? (
+                      <span>
+                        {t('One-shot')} · {formatDateTimeTz(tr.fireAt)}
+                      </span>
+                    ) : (
+                      <span className='font-mono'>{tr.cron ?? '—'}</span>
+                    )}
+                    {tr.workdaysOnly && (
+                      <Badge variant='outline' className='text-xs'>
+                        {t('Workdays only')}
+                      </Badge>
+                    )}
+                    {tr.targetChatId && <span className='truncate'>→ {tr.targetChatId}</span>}
+                  </div>
+                  {content && <p className='text-muted-foreground truncate text-xs'>{content}</p>}
+                  <div className='text-muted-foreground text-xs'>
+                    {t('Last Run')}: {tr.lastRunAt ? formatDateTimeTz(tr.lastRunAt) : t('Never')}
+                  </div>
+                </div>
+                <div className='flex items-center gap-1'>
+                  {status === 'completed' ? (
+                    <span className='text-muted-foreground mr-1 text-xs'>{t('Completed')}</span>
+                  ) : (
+                    <Checkbox
+                      checked={tr.enabled}
+                      onCheckedChange={() => toggleEnabled(tr)}
+                      aria-label={t('Enabled')}
+                    />
                   )}
-                </div>
-                <div className='text-muted-foreground flex items-center gap-3 text-xs'>
-                  <span className='font-mono'>{tr.cron}</span>
-                  {tr.targetChatId && <span className='truncate'>→ {tr.targetChatId}</span>}
-                </div>
-                <p className='text-muted-foreground truncate text-xs'>{tr.prompt}</p>
-                <div className='text-muted-foreground text-xs'>
-                  {t('Last Run')}: {tr.lastRunAt ? formatDateTimeTz(tr.lastRunAt) : t('Never')}
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    onClick={() => openEdit(tr)}
+                    aria-label={t('Edit')}
+                  >
+                    <Icons.edit className='h-4 w-4' />
+                  </Button>
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    onClick={() => handleDelete(tr)}
+                    aria-label={t('Delete')}
+                  >
+                    <Icons.trash className='h-4 w-4' />
+                  </Button>
                 </div>
               </div>
-              <div className='flex items-center gap-1'>
-                <Checkbox
-                  checked={tr.enabled}
-                  onCheckedChange={() => toggleEnabled(tr)}
-                  aria-label={t('Enabled')}
-                />
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  onClick={() => openEdit(tr)}
-                  aria-label={t('Edit')}
-                >
-                  <Icons.edit className='h-4 w-4' />
-                </Button>
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  onClick={() => handleDelete(tr)}
-                  aria-label={t('Delete')}
-                >
-                  <Icons.trash className='h-4 w-4' />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

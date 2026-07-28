@@ -48,19 +48,45 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const updates: Record<string, unknown> = {};
 
     if (body.name !== undefined) updates.name = body.name;
-    if (body.cron !== undefined) {
-      if (!cron.validate(body.cron))
-        return NextResponse.json({ error: 'Invalid cron expression' }, { status: 400 });
-      updates.cron = body.cron;
-    }
+    if (body.kind !== undefined) updates.kind = body.kind === 'reminder' ? 'reminder' : 'task';
     if (body.prompt !== undefined) updates.prompt = body.prompt;
+    if (body.message !== undefined) updates.message = body.message;
     if (body.targetChatId !== undefined) {
       updates.targetChatId =
         typeof body.targetChatId === 'string' && body.targetChatId.trim()
           ? body.targetChatId.trim()
           : null;
     }
-    if (body.enabled !== undefined) updates.enabled = !!body.enabled;
+    // Schedule switch: a non-empty cron clears fireAt (→ recurring) and vice versa.
+    if (body.cron !== undefined) {
+      const c = typeof body.cron === 'string' ? body.cron.trim() : '';
+      if (c) {
+        if (!cron.validate(c))
+          return NextResponse.json({ error: 'Invalid cron expression' }, { status: 400 });
+        updates.cron = c;
+        updates.fireAt = null;
+      } else {
+        updates.cron = null;
+      }
+    }
+    if (body.fireAt !== undefined) {
+      const f = typeof body.fireAt === 'string' ? body.fireAt.trim() : '';
+      if (f) {
+        const d = new Date(f);
+        if (Number.isNaN(d.getTime()))
+          return NextResponse.json({ error: 'Invalid fireAt' }, { status: 400 });
+        updates.fireAt = d;
+        updates.cron = null;
+      } else {
+        updates.fireAt = null;
+      }
+    }
+    if (body.enabled !== undefined) {
+      updates.enabled = !!body.enabled;
+      // Re-enabling re-arms: clear "completed".
+      if (body.enabled) updates.completedAt = null;
+    }
+    if (body.workdaysOnly !== undefined) updates.workdaysOnly = !!body.workdaysOnly;
 
     if (Object.keys(updates).length > 0) {
       await db.update(agentTrigger).set(updates).where(eq(agentTrigger.id, triggerId));

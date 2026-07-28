@@ -172,6 +172,18 @@ export const agentMemory = pgTable(
 
 // ============================================================
 // Agent Trigger — scheduled proactive tasks
+// ------------------------------------------------------------
+// Two kinds, decided at creation:
+//  - 'reminder': fire-and-forget a FIXED message to targetChatId. No LLM runs
+//    at fire time — cheap, dumb, exactly "9点叫我打卡".
+//  - 'task': run an LLM agent turn with `prompt` (may call tools, draft a
+//    doc, summarize, then optionally deliver the result to targetChatId).
+// Schedule is one of:
+//  - recurring  → `cron` (5-field), fires repeatedly, never auto-completes.
+//  - one-shot   → `fireAt` (a specific instant), fires once then transitions
+//    to 'completed' (enabled=false + completedAt). cron is null for one-shots.
+// Lifecycle: `enabled` + `completedAt`. Derived status =
+//  completedAt ? 'completed' : enabled ? 'active' : 'paused'.
 // ============================================================
 
 export const agentTrigger = pgTable(
@@ -183,14 +195,29 @@ export const agentTrigger = pgTable(
       .notNull()
       .references(() => agent.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    cron: text('cron').notNull(),
-    prompt: text('prompt').notNull(),
+    /** 'reminder' = send fixed message (no LLM); 'task' = run agent turn. */
+    kind: text('kind').notNull().default('task'),
+    /** Recurring schedule (5-field cron). Null for one-shot triggers (fireAt). */
+    cron: text('cron'),
+    /** One-shot fire instant (absolute, tz-aware). Null for recurring (cron). */
+    fireAt: timestamp('fire_at', { mode: 'date', withTimezone: true }),
+    /** task kind: prompt fed to the agent turn. Null for reminders. */
+    prompt: text('prompt'),
+    /** reminder kind: fixed message sent verbatim at fire time. Null for tasks. */
+    message: text('message'),
+    /** Delivery target — chat_id / open_id / union_id / email (auto-detected by
+     *  the lark channel from the id prefix). For reminders = recipient; for
+     *  tasks = where the result is sent. */
     targetChatId: text('target_chat_id'),
     enabled: boolean('enabled').default(true).notNull(),
+    /** Set when a one-shot trigger has fired — distinguishes 'completed' from a
+     *  user-paused trigger (which is simply enabled=false with completedAt null). */
+    completedAt: timestamp('completed_at', { mode: 'date', precision: 3 }),
     /** Only fire on Chinese workdays: skip statutory holidays, still fire on
      *  调休 make-up days. The scheduler rewrites the cron to daily and filters
      *  via isChineseWorkday(), so a `0 9 * * 1-5` becomes "every Chinese
-     *  workday at 09:00" rather than a blind Mon–Fri. */
+     *  workday at 09:00" rather than a blind Mon–Fri. Only meaningful for
+     *  recurring triggers — one-shots fire on their chosen instant regardless. */
     workdaysOnly: boolean('workdays_only').default(false).notNull(),
     lastRunAt: timestamp('last_run_at', { mode: 'date', precision: 3 }),
     createdAt: timestamp('created_at', { mode: 'date', precision: 3 }).defaultNow().notNull(),

@@ -876,6 +876,36 @@ export const translations = {
     'Edit Trigger': 'Edit Trigger',
     'Create and manage scheduled triggers': 'Create and manage scheduled triggers',
     'Trigger Name': 'Trigger Name',
+    Kind: 'Kind',
+    Reminder: 'Reminder',
+    Task: 'Task',
+    Completed: 'Completed',
+    Paused: 'Paused',
+    Recurring: 'Recurring',
+    'One-shot': 'One-shot',
+    Schedule: 'Schedule',
+    'Fire At': 'Fire At',
+    'Reminder: send a fixed message at fire time — no LLM runs.':
+      'Reminder: send a fixed message at fire time — no LLM runs.',
+    'Task: run the agent with its tools at fire time.':
+      'Task: run the agent with its tools at fire time.',
+    'The fixed text sent verbatim when this reminder fires':
+      'The fixed text sent verbatim when this reminder fires',
+    'The instruction fed to the agent when this task fires':
+      'The instruction fed to the agent when this task fires',
+    'Fires once at this time, then transitions to completed.':
+      'Fires once at this time, then transitions to completed.',
+    Recipient: 'Recipient',
+    'oc_… (chat) / ou_… (user open_id)': 'oc_… (chat) / ou_… (user open_id)',
+    'Who the reminder is sent to. Required for reminders.':
+      'Who the reminder is sent to. Required for reminders.',
+    'Where the task result is sent. Leave blank to run without sending.':
+      'Where the task result is sent. Leave blank to run without sending.',
+    'Workdays only': 'Workdays only',
+    'Skip Chinese statutory holidays; 调休 make-up days still fire.':
+      'Skip Chinese statutory holidays; 调休 make-up days still fire.',
+    'When fired, this prompt runs the agent with its enabled tools; the result is sent to the recipient.':
+      'When fired, this prompt runs the agent with its enabled tools; the result is sent to the recipient.',
     'e.g. Daily summary': 'e.g. Daily summary',
     'Schedule (Cron)': 'Schedule (Cron)',
     'Every hour': 'Every hour',
@@ -917,7 +947,7 @@ export const translations = {
     'Select an agent': 'Select an agent',
     'Scheduled Tasks': 'Scheduled Tasks',
     'Scheduled tasks run the agent automatically at the cron time. Agents can also create these via chat.':
-      'Scheduled tasks run the agent automatically at the cron time. Agents can also create these via chat.',
+      'Scheduled tasks run the agent or send a reminder at the scheduled time. Agents can also create these via chat.',
     'No triggers yet. Ask an agent in chat to set one up, or create one here.':
       'No triggers yet. Ask an agent in chat to set one up, or create one here.'
   },
@@ -1761,6 +1791,32 @@ export const translations = {
     'Edit Trigger': '编辑触发器',
     'Create and manage scheduled triggers': '创建与管理定时触发器',
     'Trigger Name': '触发器名称',
+    Kind: '类型',
+    Reminder: '提醒',
+    Task: '任务',
+    Completed: '已完成',
+    Paused: '已暂停',
+    Recurring: '重复',
+    'One-shot': '一次性',
+    Schedule: '调度方式',
+    'Fire At': '触发时间',
+    'Reminder: send a fixed message at fire time — no LLM runs.':
+      '提醒：到点发送固定文案，不调用 LLM。',
+    'Task: run the agent with its tools at fire time.': '任务：到点带工具运行智能体。',
+    'The fixed text sent verbatim when this reminder fires': '到点要原样发送的固定文案',
+    'The instruction fed to the agent when this task fires': '到点喂给智能体执行的指令',
+    'Fires once at this time, then transitions to completed.':
+      '到这个时间触发一次，随后转为已完成。',
+    Recipient: '收件人',
+    'oc_… (chat) / ou_… (user open_id)': 'oc_…（群）/ ou_…（用户 open_id）',
+    'Who the reminder is sent to. Required for reminders.': '提醒发给谁。提醒类必填。',
+    'Where the task result is sent. Leave blank to run without sending.':
+      '任务结果发到哪。留空则只执行不发送。',
+    'Workdays only': '仅工作日',
+    'Skip Chinese statutory holidays; 调休 make-up days still fire.':
+      '跳过中国法定节假日，调休补班日照常触发。',
+    'When fired, this prompt runs the agent with its enabled tools; the result is sent to the recipient.':
+      '触发时，该提示词会带着启用的工具运行智能体，结果发送给收件人。',
     'e.g. Daily summary': '例如：每日汇总',
     'Schedule (Cron)': '定时表达式 (Cron)',
     'Every hour': '每小时',
@@ -1799,7 +1855,7 @@ export const translations = {
     'Select an agent': '选择智能体',
     'Scheduled Tasks': '定时任务',
     'Scheduled tasks run the agent automatically at the cron time. Agents can also create these via chat.':
-      '定时任务会按 cron 时间自动运行智能体。智能体也可以在对话中创建。',
+      '定时任务会按设定时间运行智能体或发送提醒。智能体也可以在对话中创建。',
     'No triggers yet. Ask an agent in chat to set one up, or create one here.':
       '暂无定时任务。在对话里让智能体设置,或在此手动创建。'
   }

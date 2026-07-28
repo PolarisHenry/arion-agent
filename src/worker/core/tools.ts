@@ -78,25 +78,29 @@ const TOOL_DEFS: LlmTool[] = [
     function: {
       name: 'manage_schedule',
       description:
-        'manage_schedule: 管理本智能体的定时触发任务(非 lark-cli)。action=create/list/delete/update。\n' +
-        'create 需要 name(人类可读标签) + cron(5字段标准 cron: 分 时 日 月 周) + prompt(到点要做什么)。\n' +
-        'cron 按 agent 时区计算; 系统提示里已给出当前时间, 用它把"今天/明天/本周三"换算成具体日期。\n' +
+        'manage_schedule: 管理本智能体的定时任务(非 lark-cli)。action=create/list/delete/update。\n' +
         '\n' +
-        '⚠️ 一次性 vs 重复 —— 最易出错, 务必分清:\n' +
-        '- 默认一次性: 用户只给时间、没说"每天/每周/工作日/每隔/定期", 就是一次性提醒 → cron 的"日""月"必须填那一天的【具体日期】, 不能用 *。例: 今天 7/23 的 9 点 = "0 9 23 7 *"; 明天 7/24 的 9 点 = "0 9 24 7 *"。\n' +
-        '- 只有用户明确说"每天/每周/工作日/每隔N/每月/每年"才是重复 → 用通配 *。例: "0 9 * * *" 每天9点; "0 9 * * 1-5" 工作日9点; "0 9 * * 1" 每周一9点; "0 * * * *" 每小时; "*/5 * * * *" 每5分钟。\n' +
-        '- "9点提醒我" = 今天9点(若现在已过9点则先确认是否改明天), 绝不是"每天9点"。把单次时间擅自升级成每天, 是本工具最常见的严重错误。\n' +
-        '- 时间已过或指代不明(如"下周"但当前日期不清)时, 先向用户确认, 不要瞎猜。\n' +
+        '两类任务(创建时用 kind 选):\n' +
+        '- kind=reminder(定时提醒): 到点把一段【固定文案】发给目标对象, 不跑 LLM、不调工具, 纯粹"到点喊一嗓子"。适合"提醒我/别忘了/到点叫我/定时催"。必填 message(到点要发的原文)。\n' +
+        '- kind=task(定时任务): 到点跑一次 agent turn 执行操作(可调工具、生成内容、记账、出文档), 结果可选地发到目标对象。必填 prompt(到点喂给 agent 的指令)。\n' +
+        '  · 判定: 用户说"提醒/到点叫我/别忘了/催一下" → reminder; 说"每天生成/定时做XX/算一下/出个报告/整理" → task。拿不准就 task。\n' +
         '\n' +
-        '⚠️ 提醒 vs 飞书日程 —— 别混:\n' +
-        '- 本工具是【agent 定时提醒】: 到点由我主动发一句话/做件事, 不进飞书日历。适合"提醒我/别忘了/到点叫我/定时催/每天提醒"。\n' +
-        '- 飞书【日程】= 日历事件(走 run_lark_cli 的 calendar +create), 出现在飞书日历里、由飞书按日程时间通知。适合"开会/约会/预约/排期/约XX/加个日程"。\n' +
-        '- 例: "明天3点提醒我开会" → 本工具(到点我提醒你); "明天3点约个会/加个日程" → calendar +create。两者可并存(既建日程又加提醒), 但别用错工具。\n' +
+        '调度时间(二选一, 必须给一个):\n' +
+        '- 一次性 → 传 fire_at(ISO-8601 带时区, 如 2026-07-23T09:00:00+08:00)。到点发一次, 自动转"已完成", 不再重复。用户只给一个时间、没说"每天/每周/定期" → 就是一次性, 用 fire_at。\n' +
+        '- 重复 → 传 cron(5字段标准 cron: 分 时 日 月 周)。只有用户明确说"每天/每周/工作日/每隔N/每月/每年"才用。例: "0 9 * * *" 每天9点; "0 9 * * 1-5" 工作日9点; "0 9 * * 1" 每周一。\n' +
+        '  · cron 按 agent 时区算; 系统提示已给当前时间, 用它换算"今天/明天/本周三"。但一次性请直接用 fire_at, 别把日期塞进 cron。\n' +
+        '  · "9点提醒我" = 今天9点(若已过9点则先确认是否改明天), 不是"每天9点"。时间已过或指代不明时先问用户, 别瞎猜。\n' +
         '\n' +
-        'target_chat_id 可选(不传则默认当前会话, 到点把回复发到那)。\n' +
-        '重要: prompt 直接写"到点要说的内容"本身(如"提醒: 检查露营模式关了没"), 不要写成"请发消息给某人"——到点触发时系统会自动把你的最终回复以 bot 身份发到 target_chat_id, 你直接把内容说出来即可。\n' +
-        '只在用户明确要求"定时/提醒/每天/每周"时创建; 不要只说"我会提醒你"却不实际创建任务。\n' +
-        'workdays_only=true 表示"仅工作日"语义: 跳过中国法定节假日、调休补班日照常触发(详见该参数)。',
+        'target_chat_id 可选(不传则默认当前会话)。reminder 必须有目标(否则没地方发); task 不传则只执行不发结果。\n' +
+        'reminder 的 message 直接写"到点要说的原文"(如"提醒: 关掉露营模式"); task 的 prompt 写"到点做什么"(如"把今天的支出记到账上")。\n' +
+        '\n' +
+        '⚠️ 定时提醒 vs 飞书日程 —— 别混:\n' +
+        '- 本工具 = agent 到点主动发话/做事, 不进飞书日历。适合"提醒/到点/定时/每天"。\n' +
+        '- 飞书【日程】= 日历事件(走 run_lark_cli 的 calendar +create), 出现在飞书日历里、由飞书按时间通知。适合"开会/约会/预约/排期/约XX/加个日程"。\n' +
+        '- 例: "明天3点提醒我开会" → 本工具(reminder); "明天3点约个会/加个日程" → calendar +create。两者可并存。\n' +
+        '\n' +
+        '只在用户明确要求"定时/提醒/每天/每周/到点"时创建; 别只说"我会提醒你"却不创建。' +
+        'workdays_only=true(仅重复任务)表示"仅工作日": 跳过中国法定节假日、调休补班照常触发。',
       parameters: {
         type: 'object',
         properties: {
@@ -105,16 +109,27 @@ const TOOL_DEFS: LlmTool[] = [
             enum: ['create', 'list', 'delete', 'update'],
             description: 'create/list/delete/update a scheduled task'
           },
+          kind: {
+            type: 'string',
+            enum: ['reminder', 'task'],
+            description:
+              'create/update: reminder=到点发固定文案(不跑LLM); task=到点跑agent执行操作。默认 task。'
+          },
           name: { type: 'string', description: 'create/update: 人类可读标签' },
-          cron: { type: 'string', description: '5字段标准 cron: 分 时 日 月 周' },
-          prompt: { type: 'string', description: 'create: 触发时执行的内容' },
+          cron: { type: 'string', description: '重复: 5字段标准 cron (分 时 日 月 周)' },
+          fire_at: {
+            type: 'string',
+            description: '一次性: ISO-8601 带时区(如 2026-07-23T09:00:00+08:00), 到点发一次后完成'
+          },
+          prompt: { type: 'string', description: 'task: 到点喂给 agent 的指令' },
+          message: { type: 'string', description: 'reminder: 到点要发的固定原文' },
           trigger_id: { type: 'string', description: 'delete/update: 任务 id（来自 list）' },
-          target_chat_id: { type: 'string', description: 'create: 结果发到哪个会话（可选）' },
+          target_chat_id: { type: 'string', description: '可选; 不传默认当前会话' },
           enabled: { type: 'boolean', description: 'update: 启用/停用' },
           workdays_only: {
             type: 'boolean',
             description:
-              'create/update: 仅工作日触发(跳过中国法定节假日、调休补班照常)。true 时系统把 cron 当每天调度、再判断今天是否中国工作日。用户说“工作日提醒/跳过节假日”设 true; 说“每天/每周一”等明确周期通常 false。'
+              'create/update(仅重复任务): 仅工作日触发(跳过中国法定节假日、调休补班照常)。用户说"工作日/跳过节假日"设 true。'
           }
         },
         required: ['action']
@@ -280,33 +295,74 @@ async function executeScheduleTool(
   try {
     if (action === 'create') {
       const name = String(args.name ?? '').trim();
-      const cronExpr = String(args.cron ?? '').trim();
-      const prompt = String(args.prompt ?? '').trim();
       if (!name) return '[schedule] create requires "name"';
-      if (!cronExpr)
-        return '[schedule] create requires "cron" (5-field: min hour day month weekday)';
-      if (!cron.validate(cronExpr))
+      const kind = args.kind === 'reminder' ? 'reminder' : 'task';
+
+      // Schedule: exactly one of cron (recurring) or fire_at (one-shot).
+      const cronExpr = args.cron ? String(args.cron).trim() : '';
+      const fireAtRaw = args.fire_at ? String(args.fire_at).trim() : '';
+      if (!cronExpr && !fireAtRaw)
+        return '[schedule] create requires either "cron" (recurring) or "fire_at" (one-shot ISO-8601)';
+      if (cronExpr && fireAtRaw)
+        return '[schedule] pass only one of "cron" (recurring) or "fire_at" (one-shot) — not both';
+      let fireAt: Date | null = null;
+      if (fireAtRaw) {
+        fireAt = new Date(fireAtRaw);
+        if (Number.isNaN(fireAt.getTime()))
+          return `[schedule] invalid "fire_at": "${fireAtRaw}". Use ISO-8601 with timezone, e.g. 2026-07-23T09:00:00+08:00.`;
+      }
+      if (cronExpr && !cron.validate(cronExpr))
         return `[schedule] invalid cron expression: "${cronExpr}". Use 5-field standard cron (min hour day month weekday).`;
-      if (!prompt) return '[schedule] create requires "prompt" (what to do when it fires)';
+
       const targetChatId = args.target_chat_id
         ? String(args.target_chat_id).trim()
         : (ctx.chatId ?? null);
+      // workdays_only only applies to recurring triggers; a one-shot fires on
+      // its chosen instant regardless of whether it's a holiday.
+      const workdaysOnly = args.workdays_only === true && !!cronExpr;
+      const when = fireAt ? `一次性 @ ${fireAt.toISOString()}` : `重复 ${cronExpr}`;
       const id = randomUUID();
+
+      if (kind === 'reminder') {
+        const message = String(args.message ?? '').trim();
+        if (!message)
+          return '[schedule] reminder create requires "message" (the text to send when it fires)';
+        if (!targetChatId)
+          return '[schedule] reminder create requires "target_chat_id" (or run inside a chat so it defaults to the current one)';
+        await workerDb.insert(agentSchema.agentTrigger).values({
+          id,
+          ownerId,
+          agentId,
+          name,
+          kind: 'reminder',
+          message,
+          cron: cronExpr || null,
+          fireAt,
+          targetChatId,
+          enabled: true,
+          workdaysOnly
+        });
+        return `✅ 已创建定时提醒：「${name}」(${when}) → ${targetChatId}。到点直接发送，不调用 LLM。`;
+      }
+
+      const prompt = String(args.prompt ?? '').trim();
+      if (!prompt)
+        return '[schedule] task create requires "prompt" (what the agent should do when it fires)';
       await workerDb.insert(agentSchema.agentTrigger).values({
         id,
         ownerId,
         agentId,
         name,
-        cron: cronExpr,
+        kind: 'task',
         prompt,
+        cron: cronExpr || null,
+        fireAt,
         targetChatId: targetChatId || null,
         enabled: true,
-        workdaysOnly: args.workdays_only === true
+        workdaysOnly
       });
-      const where = targetChatId
-        ? ` (result will be sent to ${targetChatId})`
-        : ' (no target chat — runs without sending)';
-      return `✅ 已创建定时任务：「${name}」(${cronExpr})${where}。将在 cron 时间自动执行。`;
+      const where = targetChatId ? ` (结果发到 ${targetChatId})` : ' (无目标会话, 只执行不发)';
+      return `✅ 已创建定时任务：「${name}」(${when})${where}。将在到点跑 agent 执行。`;
     }
 
     if (action === 'list') {
@@ -316,10 +372,14 @@ async function executeScheduleTool(
         .where(eq(agentSchema.agentTrigger.agentId, agentId));
       if (rows.length === 0) return '当前没有定时任务。';
       return rows
-        .map(
-          (r) =>
-            `- id=${r.id} 名称="${r.name}" cron=${r.cron} 启用=${r.enabled}${r.targetChatId ? ` →${r.targetChatId}` : ''} 上次执行=${r.lastRunAt?.toISOString() ?? '从未'}\n  prompt: ${r.prompt}`
-        )
+        .map((r) => {
+          const kindLabel = r.kind === 'reminder' ? '提醒' : '任务';
+          const sched = r.fireAt ? `一次性@${r.fireAt.toISOString()}` : `cron=${r.cron}`;
+          const status = r.completedAt ? '已完成' : r.enabled ? '启用' : '停用';
+          const body = r.kind === 'reminder' ? r.message : r.prompt;
+          const field = r.kind === 'reminder' ? 'message' : 'prompt';
+          return `- id=${r.id} [${kindLabel}] "${r.name}" ${sched} ${status}${r.targetChatId ? ` →${r.targetChatId}` : ''} 上次=${r.lastRunAt?.toISOString() ?? '从未'}\n  ${field}: ${body}`;
+        })
         .join('\n');
     }
 
@@ -344,17 +404,42 @@ async function executeScheduleTool(
       if (!triggerId) return '[schedule] update requires "trigger_id"';
       const updates: Record<string, unknown> = {};
       if (args.name !== undefined) updates.name = String(args.name);
-      if (args.cron !== undefined) {
-        const c = String(args.cron);
-        if (!cron.validate(c))
-          return `[schedule] invalid cron expression: "${c}". Use 5-field standard cron.`;
-        updates.cron = c;
-      }
+      if (args.kind !== undefined) updates.kind = args.kind === 'reminder' ? 'reminder' : 'task';
       if (args.prompt !== undefined) updates.prompt = String(args.prompt);
+      if (args.message !== undefined) updates.message = String(args.message);
       if (args.target_chat_id !== undefined) {
         updates.targetChatId = String(args.target_chat_id).trim() || null;
       }
-      if (args.enabled !== undefined) updates.enabled = !!args.enabled;
+      // Schedule switch: providing a non-empty cron clears fireAt (→ recurring),
+      // and vice versa, keeping the cron/fireAt mutual-exclusion invariant.
+      if (args.cron !== undefined) {
+        const c = String(args.cron).trim();
+        if (c) {
+          if (!cron.validate(c))
+            return `[schedule] invalid cron expression: "${c}". Use 5-field standard cron.`;
+          updates.cron = c;
+          updates.fireAt = null;
+        } else {
+          updates.cron = null;
+        }
+      }
+      if (args.fire_at !== undefined) {
+        const f = String(args.fire_at).trim();
+        if (f) {
+          const d = new Date(f);
+          if (Number.isNaN(d.getTime()))
+            return `[schedule] invalid "fire_at": "${f}". Use ISO-8601 with timezone.`;
+          updates.fireAt = d;
+          updates.cron = null;
+        } else {
+          updates.fireAt = null;
+        }
+      }
+      if (args.enabled !== undefined) {
+        updates.enabled = !!args.enabled;
+        // Re-enabling re-arms: clear "completed" so the trigger is active again.
+        if (args.enabled) updates.completedAt = null;
+      }
       if (args.workdays_only !== undefined) updates.workdaysOnly = args.workdays_only === true;
       if (Object.keys(updates).length === 0) return '[schedule] update: no fields to update';
       const updated = await workerDb
