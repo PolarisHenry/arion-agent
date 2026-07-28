@@ -221,6 +221,9 @@ export function applyFidelityDrop(
   for (const m of messages) {
     if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) round++;
     if (m.role !== 'tool') continue;
+    // Tool results are always string content; the string | ContentBlock[] union
+    // only arises on user image messages, which are never degraded here.
+    if (typeof m.content !== 'string') continue;
     if (round === 0) continue; // orphan tool message (shouldn't happen)
 
     const age = currentRound - round;

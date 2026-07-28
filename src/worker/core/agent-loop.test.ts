@@ -606,7 +606,10 @@ describe('runAgentLoop announce-without-acting nudge', () => {
     expect(result.finalContent).toBe('✅ 已创建提醒「看一下吃啥」。');
     // A nudge user-message was injected between the promise and the tool call.
     expect(
-      result.messages.some((m) => m.role === 'user' && m.content.includes('只承诺不执行'))
+      result.messages.some(
+        (m) =>
+          m.role === 'user' && typeof m.content === 'string' && m.content.includes('只承诺不执行')
+      )
     ).toBe(true);
   });
 
@@ -628,7 +631,10 @@ describe('runAgentLoop announce-without-acting nudge', () => {
     expect(result.toolCallLog).toHaveLength(0);
     expect(result.finalContent).toContain('搬到哪个文档');
     expect(
-      result.messages.some((m) => m.role === 'user' && m.content.includes('只承诺不执行'))
+      result.messages.some(
+        (m) =>
+          m.role === 'user' && typeof m.content === 'string' && m.content.includes('只承诺不执行')
+      )
     ).toBe(false);
   });
 

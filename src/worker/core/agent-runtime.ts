@@ -11,7 +11,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { workerDb, agentSchema } from '../worker-db';
 import { config } from '../config';
 import { createLogger } from './logger';
-import { chat } from './llm';
+import { chat, type ContentBlock } from './llm';
 import { streamTextInChunks, sleep } from './stream-chunk';
 import { getTools, executeTool, type AuthHooks } from './tools';
 import {
@@ -20,6 +20,14 @@ import {
   WRAP_UP_FALLBACK,
   TURN_ERROR_FALLBACK
 } from './agent-loop';
+import {
+  downloadAndPrepareImages,
+  buildImageUserMessage,
+  stripImagesForPersist,
+  cleanupTempPaths,
+  runWithVisionFallback,
+  type PreparedImages
+} from './image';
 import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { loadMemoryFacts, renderMemorySection } from './agent-memory';
@@ -34,7 +42,7 @@ type LlmModelRow = typeof agentSchema.llmModel.$inferSelect;
 
 type Message = {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: string | ContentBlock[];
   tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
   name?: string;
@@ -295,6 +303,11 @@ export class AgentRuntime {
       })
       .catch(() => {});
 
+    // Images attached to this message (null when there are none). Prepared
+    // before the loop and cleaned up after it; declared out here so cleanup
+    // runs even if the turn throws before/inside the loop.
+    let prepared: PreparedImages | null = null;
+
     try {
       // Build conversation context. The system prompt is re-injected fresh on
       // every call (so prompt edits hot-reload) and is NOT stored in history —
@@ -310,8 +323,16 @@ export class AgentRuntime {
       const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt, { memorySection });
       const sessionHistory = await this.sessionMgr.load(chatId, chatType);
 
+      // Download any images the user attached. Best-effort: returns null when
+      // there are none or every download failed — never breaks the turn.
+      prepared = await downloadAndPrepareImages(this.channel, msg);
+
       // `messages` is the persisted history (system prompt is NOT included).
-      const messages: Message[] = [...sessionHistory, { role: 'user', content: msg.content }];
+      // Images are embedded as image_url blocks so the agent's own model can
+      // read them; a temp-file path rides along in the text so the model can
+      // also upload/insert them on demand. See image.ts for the fallback.
+      const userMessage = buildImageUserMessage(msg.content, prepared, { withVision: true });
+      const messages: Message[] = [...sessionHistory, userMessage];
 
       // Get enabled tools
       const tools = getTools();
@@ -326,30 +347,51 @@ export class AgentRuntime {
         maxTokens: this.llmRow.maxTokens ?? 8192
       };
 
-      const loopResult = await runAgentLoop({
-        chat: (msgs, tlz) => chat(llmConfig, msgs, tlz),
-        executeTool,
-        tools,
-        systemPrompt,
-        initialMessages: messages,
-        policy: resolveLoopPolicy(this.llmRow),
-        onInterim: async (content) => {
-          try {
-            await this.channel.send(chatId, { markdown: content });
-          } catch {
-            // Interim delivery failures must not abort the turn
+      // Run the loop. If the model rejects the image with a 400 (a text-only
+      // model can't read images), rebuild the user message WITHOUT the vision
+      // blocks and run once more — the model can still manipulate the image as
+      // a file (the temp path is in the text note). The 400 fires on round 1's
+      // chat, before any tool runs, so re-running has no side effects.
+      const runLoop = (initialMessages: Message[]) =>
+        runAgentLoop({
+          chat: (msgs, tlz) => chat(llmConfig, msgs, tlz),
+          executeTool,
+          tools,
+          systemPrompt,
+          initialMessages,
+          policy: resolveLoopPolicy(this.llmRow),
+          onInterim: async (content) => {
+            try {
+              await this.channel.send(chatId, { markdown: content });
+            } catch {
+              // Interim delivery failures must not abort the turn
+            }
+          },
+          toolCtx: {
+            profile: this.agentRow.larkCliProfile,
+            appId: this.agentRow.appId,
+            asUser: this.hasUserAuth,
+            userOnly: false, // executeTool resolves this internally from isUserRequired
+            agentId: this.agentId,
+            ownerId: this.ownerId,
+            chatId,
+            authHooks: this.authHooks
           }
-        },
-        toolCtx: {
-          profile: this.agentRow.larkCliProfile,
-          appId: this.agentRow.appId,
-          asUser: this.hasUserAuth,
-          userOnly: false, // executeTool resolves this internally from isUserRequired
-          agentId: this.agentId,
-          ownerId: this.ownerId,
-          chatId,
-          authHooks: this.authHooks
-        }
+        });
+
+      const loopResult = await runWithVisionFallback({
+        run: () => runLoop(messages),
+        // 400 = the agent's model can't read images. Rebuild WITHOUT vision
+        // blocks and run once more, so it can still manipulate the image as a
+        // file (temp path rides in the text note). The 400 fires on round 1's
+        // chat, before any tool runs, so re-running has no side effects.
+        fallback: () =>
+          runLoop([
+            ...sessionHistory,
+            buildImageUserMessage(msg.content, prepared, { withVision: false })
+          ]),
+        hasImages: Boolean(prepared && prepared.imageBlocks.length > 0),
+        onRetry: () => log.warn('model rejected image (HTTP 400), retrying turn without vision')
       });
 
       let finalResponse = loopResult.finalContent;
@@ -398,8 +440,10 @@ export class AgentRuntime {
       // Persist the final assistant message
       loopResult.messages.push({ role: 'assistant', content: finalResponse });
 
-      // Persist the session with updated messages
-      await this.sessionMgr.save(chatId, chatType, loopResult.messages);
+      // Persist the session. Strip image content blocks first so the DB never
+      // stores base64 and SessionManager.truncate (which assumes string
+      // content) never sees array content.
+      await this.sessionMgr.save(chatId, chatType, stripImagesForPersist(loopResult.messages));
 
       // Write execution log
       const durationMs = Date.now() - startTime;
@@ -438,6 +482,12 @@ export class AgentRuntime {
         error: err?.message ?? String(err),
         durationMs
       });
+    }
+
+    // Clean up this turn's temp image files now that every tool call has
+    // finished (the model may have used these paths to upload/insert images).
+    if (prepared) {
+      await cleanupTempPaths(prepared.tempPaths).catch(() => {});
     }
 
     // Remove the typing reaction when we're done

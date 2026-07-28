@@ -8,9 +8,17 @@ import { createLogger } from './logger';
 
 const log = createLogger('llm');
 
+/** Multimodal content block for user messages (OpenAI chat-completions shape).
+ *  `text` carries prose; `image_url` carries a (usually data: URL) image the
+ *  model can read. Only user messages use array content in this codebase —
+ *  system/assistant/tool stay strings. */
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export type LlmMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: string | ContentBlock[];
   tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
   name?: string;
