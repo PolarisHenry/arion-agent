@@ -131,7 +131,7 @@ export function TriggerOverview() {
                         <Badge variant='outline' className='text-xs'>
                           {isReminder ? t('Reminder') : t('Task')}
                         </Badge>
-                        <span className='truncate font-medium'>{tr.name}</span>
+                        <span className='min-w-0 truncate font-medium'>{tr.name}</span>
                         {status === 'completed' && (
                           <span className='text-muted-foreground text-xs'>({t('Completed')})</span>
                         )}
@@ -152,7 +152,9 @@ export function TriggerOverview() {
                             {t('Workdays only')}
                           </Badge>
                         )}
-                        {tr.targetChatId && <span className='truncate'>→ {tr.targetChatId}</span>}
+                        {tr.targetChatId && (
+                          <span className='min-w-0 truncate'>→ {tr.targetChatId}</span>
+                        )}
                       </div>
                       {content && (
                         <p className='text-muted-foreground truncate text-xs'>{content}</p>
@@ -162,7 +164,7 @@ export function TriggerOverview() {
                         {tr.lastRunAt ? formatDateTimeTz(tr.lastRunAt) : t('Never')}
                       </div>
                     </div>
-                    <div className='flex items-center gap-1'>
+                    <div className='flex shrink-0 items-center gap-1'>
                       {status === 'completed' ? (
                         <span className='text-muted-foreground mr-1 text-xs'>{t('Completed')}</span>
                       ) : (
