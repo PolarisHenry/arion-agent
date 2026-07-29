@@ -23,12 +23,12 @@ export type MemoryFact = {
 };
 
 const IMP_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
-const MAX_FACTS = 50;
-const MAX_SECTION_CHARS = 2000;
+const MAX_FACTS = 200;
+const MAX_SECTION_CHARS = 12000;
 
 /** Pure: render memory facts into a system-prompt section. Empty → ''.
  *  Sorts by importance descending (high > medium > low), then newest-first
- *  within each tier. Expired facts are excluded. Capped at 50 facts / 2KB. */
+ *  within each tier. Expired facts are excluded. Capped at 200 facts / 12KB. */
 export function renderMemorySection(facts: MemoryFact[]): string {
   if (facts.length === 0) return '';
   const now = new Date();
@@ -57,7 +57,8 @@ export function renderMemorySection(facts: MemoryFact[]): string {
       break;
     }
   }
-  const header = '## 已记下的信息（长期记忆，/clear 不会丢）';
+  const header =
+    '## 已记下的信息（长期记忆，/clear 不会丢）\n（若以下任何一条与你本轮掌握的最新事实矛盾或已过时，请用 memory save 同 key 覆盖更新，或 memory delete 清理，别留着错信息误导自己。）';
   const footer = truncated ? '\n（更多请用 memory list 查看）' : '';
   return `\n\n${header}\n${lines.join('\n')}${footer}`;
 }
@@ -166,7 +167,7 @@ export async function deleteMemoryFact(agentId: string, key: string): Promise<bo
 
 /** Load non-expired facts for system-prompt injection. Sorted by importance
  *  (high → medium → low) then newest-first within each tier. The render side
- *  also caps at 50 entries / 2KB. */
+ *  also caps at 200 entries / 12KB. */
 export async function loadMemoryFacts(agentId: string): Promise<MemoryFact[]> {
   const now = new Date();
   const rows = await workerDb

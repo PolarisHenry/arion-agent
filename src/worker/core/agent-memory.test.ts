@@ -65,8 +65,8 @@ describe('renderMemorySection', () => {
     expect(out).not.toContain('x'.repeat(200));
   });
 
-  it('caps at 50 facts and appends the "更多" hint', () => {
-    const many = Array.from({ length: 60 }, (_, i) =>
+  it('caps at 200 facts and appends the "更多" hint', () => {
+    const many = Array.from({ length: 220 }, (_, i) =>
       fact({
         id: `m${i}`,
         key: `k${i}`,
@@ -78,7 +78,7 @@ describe('renderMemorySection', () => {
     const out = renderMemorySection(many);
     expect(out).toContain('更多请用 memory list 查看');
     const factLines = out.split('\n').filter((l) => l.startsWith('- ')).length;
-    expect(factLines).toBeLessThanOrEqual(50);
+    expect(factLines).toBeLessThanOrEqual(200);
   });
 });
 
