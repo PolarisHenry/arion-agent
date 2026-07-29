@@ -23,7 +23,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <KBar>
       <SidebarProvider defaultOpen={defaultOpen}>
         <AppSidebar />
-        <SidebarInset>
+        <SidebarInset className='min-w-0'>
           <Header />
           <InfobarProvider defaultOpen={false}>
             {children}

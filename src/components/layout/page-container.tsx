@@ -39,5 +39,7 @@ export default function PageContainer({
 
   const content = isLoading ? <PageSkeleton /> : children;
 
-  return <div className='flex flex-1 flex-col px-4 pt-2 pb-4 md:px-6 md:pt-4'>{content}</div>;
+  return (
+    <div className='flex min-w-0 flex-1 flex-col px-4 pt-2 pb-4 md:px-6 md:pt-4'>{content}</div>
+  );
 }
