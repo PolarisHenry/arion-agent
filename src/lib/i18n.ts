@@ -1611,7 +1611,7 @@ export const translations = {
     Vercel: 'Vercel',
     Mono: 'Mono',
     Notebook: 'Notebook',
-    'Light Green': '浅绿色',
+    'Light Green': 'Light Green',
     Zen: 'Zen',
     'Astro Vista': 'Astro Vista',
     WhatsApp: 'WhatsApp',
