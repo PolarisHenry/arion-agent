@@ -146,8 +146,16 @@ export async function getMemoryFact(agentId: string, key: string): Promise<Memor
   return row ? toFact(row) : null;
 }
 
+/** List facts for the agent-facing `memory list` tool. Same non-expired scope
+ *  as loadMemoryFacts (injection) — the agent must never see a fact in its list
+ *  that's silently absent from its prompt. The dashboard reads via its own route
+ *  (app `db`) and still shows expired facts for audit. */
 export async function listMemoryFacts(agentId: string, category?: string): Promise<MemoryFact[]> {
-  const conditions = [eq(agentSchema.agentMemory.agentId, agentId)];
+  const now = new Date();
+  const conditions = [
+    eq(agentSchema.agentMemory.agentId, agentId),
+    or(isNull(agentSchema.agentMemory.expiresAt), gt(agentSchema.agentMemory.expiresAt, now))
+  ];
   if (category) conditions.push(eq(agentSchema.agentMemory.category, category));
   const rows = await workerDb
     .select()

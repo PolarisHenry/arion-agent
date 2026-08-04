@@ -149,7 +149,7 @@ export const agentMemory = pgTable(
     label: text('label'),
     category: text('category'),
     note: text('note'),
-    /** Importance tier for truncation priority. Top-50 inject keeps high first,
+    /** Importance tier for truncation priority. Top-200 inject keeps high first,
      *  then medium, then low; within each tier newest-first. Agent sets this via
      *  the `memory` tool's `importance` param. */
     importance: text('importance').notNull().default('medium'),
