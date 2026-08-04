@@ -173,11 +173,16 @@ function isToolError(result: string): boolean {
 /** Observation Mask (Layer 1): structured truncation with a metadata header.
  *  Preserves the tool name, result status, original size, and head+tail of
  *  the content so the model knows what was truncated and can narrow its next
- *  query. Only applies to run_lark_cli and read_skill — other tools' results
- *  are small (manage_schedule, schema). */
+ *  query. Only applies to run_lark_cli — it can dump huge payloads (e.g.
+ *  sheets cells-get at 500K chars). read_skill returns markdown docs the model
+ *  CHOSE to read on demand (SKILL.md + reference files); head+tail truncation
+ *  would make a doc unusable (the attrs/schema detail lives in the middle), and
+ *  Layer 2 (applyFidelityDrop) already retires old read_skill results by
+ *  recency, so leaving them whole here doesn't let context grow unbounded.
+ *  Other tools (manage_schedule, schema, memory) return small results. */
 export function maskToolResult(result: string, toolName: string, maxChars: number): string {
   if (result.length <= maxChars) return result;
-  if (toolName !== 'run_lark_cli' && toolName !== 'read_skill') return result;
+  if (toolName !== 'run_lark_cli') return result;
 
   const status =
     result.startsWith('[') && result.includes(']')

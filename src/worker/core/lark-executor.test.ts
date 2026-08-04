@@ -302,6 +302,23 @@ describe('readSkill / larkSchema', () => {
     ]);
   });
 
+  // SKILL.md is a routing doc that points to reference files (e.g. the formula
+  // field guide); readSkill must let the agent fetch a specific reference by
+  // appending its path to `skills read <name> <path>`.
+  it('readSkill appends a reference path so the agent can read a sub-file', async () => {
+    const exec = makeExec([{ stdout: '# Formula Writing Guide' }]);
+    await readSkill('lark-base', ctx, exec as any, 'references/formula-field-guide.md');
+    expect(exec.mock.calls[0][1]).toEqual([
+      '--profile',
+      'prof1',
+      'skills',
+      'read',
+      'lark-base',
+      'references/formula-field-guide.md'
+    ]);
+    expect(exec.mock.calls[0][1]).not.toContain('');
+  });
+
   it('larkSchema calls lark-cli schema', async () => {
     const exec = makeExec([{ stdout: '{"name":"x"}' }]);
     await larkSchema('calendar.events.create', ctx, exec as any);

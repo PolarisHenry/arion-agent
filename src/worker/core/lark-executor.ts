@@ -255,15 +255,23 @@ export async function runLarkCli(
 export async function readSkill(
   domain: string,
   ctx: ToolContext,
-  exec: ExecFn = execFileAsync as unknown as ExecFn
+  exec: ExecFn = execFileAsync as unknown as ExecFn,
+  path?: string
 ): Promise<string> {
   // All skills are `lark-*`. Tolerate the agent passing the bare CLI domain it
   // is reasoning about (e.g. `sheets` / `calendar`) by normalising to the skill
   // name. The skill index already exposes correct names — this is a backstop.
   const name = domain && domain.startsWith('lark-') ? domain : `lark-${domain}`;
-  const label = `skills read ${name}`;
+  // SKILL.md is a thin routing doc that points to per-topic reference files
+  // (e.g. references/formula-field-guide.md). When `path` is given, fetch that
+  // sub-file instead of the top-level SKILL.md — `lark-cli skills read <name>
+  // <path>` supports it natively. The agent discovers these paths from the
+  // links embedded in SKILL.md itself.
+  const skillArgv = ['skills', 'read', name];
+  if (path) skillArgv.push(path);
+  const label = `skills read ${name}${path ? ` ${path}` : ''}`;
   try {
-    const r = await exec(config.larkCliPath, buildArgv(['skills', 'read', name], ctx), EXEC_OPTS);
+    const r = await exec(config.larkCliPath, buildArgv(skillArgv, ctx), EXEC_OPTS);
     const failed = interpretIfFailed(r.stdout ?? '', label, ctx);
     if (failed) return failed;
     return r.stdout?.trim() || '(skill 为空)';

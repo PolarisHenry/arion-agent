@@ -9,14 +9,23 @@ vi.mock('./agent-memory', () => ({
   renderMemorySection: vi.fn(() => '')
 }));
 
+vi.mock('./lark-executor', () => ({
+  runLarkCli: vi.fn(async () => 'ok'),
+  readSkill: vi.fn(async () => 'skill content'),
+  larkSchema: vi.fn(async () => 'schema')
+}));
+
 import { getTools, isUserRequired, executeTool } from './tools';
 import { saveMemoryFact, getMemoryFact, listMemoryFacts, deleteMemoryFact } from './agent-memory';
+import { readSkill } from './lark-executor';
 
 beforeEach(() => {
   saveMemoryFact.mockReset();
   getMemoryFact.mockReset();
   listMemoryFacts.mockReset();
   deleteMemoryFact.mockReset();
+  readSkill.mockReset();
+  readSkill.mockResolvedValue('skill content');
 });
 
 describe('getTools', () => {
@@ -29,6 +38,29 @@ describe('getTools', () => {
       'run_lark_cli',
       'schema'
     ]);
+  });
+});
+
+describe('read_skill dispatch', () => {
+  const ctx = { profile: 'prof1', appId: 'cli_x' } as any;
+
+  it('forwards args.path to readSkill so the agent can fetch a reference file', async () => {
+    await executeTool(
+      'read_skill',
+      { domain: 'lark-base', path: 'references/formula-field-guide.md' },
+      ctx
+    );
+    expect(readSkill).toHaveBeenCalledWith(
+      'lark-base',
+      ctx,
+      undefined,
+      'references/formula-field-guide.md'
+    );
+  });
+
+  it('calls readSkill without a path when none is given', async () => {
+    await executeTool('read_skill', { domain: 'lark-calendar' }, ctx);
+    expect(readSkill).toHaveBeenCalledWith('lark-calendar', ctx, undefined, undefined);
   });
 });
 

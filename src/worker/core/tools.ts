@@ -29,11 +29,16 @@ const TOOL_DEFS: LlmTool[] = [
     function: {
       name: 'read_skill',
       description:
-        '读取某个飞书域的 SKILL.md 用法说明（离线、安全）。用到某域的深度用法（多步流程、身份要求、常见坑）时先调它。传入 domain，例如 lark-calendar / lark-doc / lark-im。',
+        '读取某个飞书域的 SKILL.md 用法说明（离线、安全）。用到某域的深度用法（多步流程、身份要求、常见坑）时先调它。传入 domain，例如 lark-calendar / lark-doc / lark-im。SKILL.md 是一张路由表，里面出现的 references/xxx.md 链接（如公式字段 guide、lookup guide、角色配置）是深度细节的来源——遇到这类链接时用 path 参数读对应文件，不要凭猜测拼字段结构。',
       parameters: {
         type: 'object',
         properties: {
-          domain: { type: 'string', description: 'skill 域名，如 lark-calendar' }
+          domain: { type: 'string', description: 'skill 域名，如 lark-calendar' },
+          path: {
+            type: 'string',
+            description:
+              '可选：skill 下某个 reference 文件的相对路径，如 references/formula-field-guide.md。SKILL.md 里出现 references/xxx.md 链接且你需要其细节时传入；不传则返回主 SKILL.md。'
+          }
         },
         required: ['domain']
       }
@@ -264,7 +269,10 @@ export async function executeTool(
 
   if (toolName === 'manage_schedule') return executeScheduleTool(args, ctx);
   if (toolName === 'memory') return executeMemoryTool(args, ctx);
-  if (toolName === 'read_skill') return readSkill(String(args.domain ?? ''), ctx);
+  if (toolName === 'read_skill') {
+    const skillPath = args.path ? String(args.path) : undefined;
+    return readSkill(String(args.domain ?? ''), ctx, undefined, skillPath);
+  }
   if (toolName === 'schema') return larkSchema(String(args.method ?? ''), ctx);
   if (toolName === 'run_lark_cli') {
     const argv = Array.isArray(args.argv) ? (args.argv as string[]).map(String) : [];

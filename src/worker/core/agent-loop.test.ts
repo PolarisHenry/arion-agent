@@ -4,6 +4,7 @@ import {
   buildWrapUpMessages,
   WRAP_UP_INSTRUCTIONS,
   WRAP_UP_FALLBACK,
+  maskToolResult,
   type LoopDeps,
   type LoopPolicy,
   type StopReason,
@@ -102,6 +103,44 @@ function makeDeps(overrides: Partial<LoopDeps> = {}): LoopDeps {
     ...overrides
   };
 }
+
+// -----------------------------------------------------------
+// Layer 1: maskToolResult
+// -----------------------------------------------------------
+
+describe('maskToolResult', () => {
+  it('leaves short results untouched regardless of tool', () => {
+    expect(maskToolResult('small', 'run_lark_cli', 8000)).toBe('small');
+    expect(maskToolResult('small', 'read_skill', 8000)).toBe('small');
+  });
+
+  // run_lark_cli can dump huge payloads (e.g. sheets cells-get at 500K chars);
+  // those must still be masked so one giant result doesn't balloon every later
+  // round's input. Regression guard for narrowing the mask to run_lark_cli.
+  it('truncates a long run_lark_cli result with a metadata header', () => {
+    const big = 'x'.repeat(20_000);
+    const out = maskToolResult(big, 'run_lark_cli', 8000);
+    expect(out.length).toBeLessThan(big.length);
+    expect(out).toContain('工具结果已截断');
+    expect(out).toContain('run_lark_cli');
+  });
+
+  // The driving change: read_skill returns markdown docs the model CHOSE to
+  // read on demand (SKILL.md + reference files). Head+tail truncation makes a
+  // doc unusable — the attrs/schema detail lives in the middle. Layer 2
+  // (applyFidelityDrop) retires old read_skill results by recency, so leaving
+  // them whole here doesn't let context grow unbounded.
+  it('does NOT truncate read_skill results even when over maxChars', () => {
+    const big = 'x'.repeat(20_000);
+    expect(maskToolResult(big, 'read_skill', 8000)).toBe(big);
+  });
+
+  it('never touches non-lark tools (manage_schedule / memory)', () => {
+    const big = 'x'.repeat(20_000);
+    expect(maskToolResult(big, 'manage_schedule', 8000)).toBe(big);
+    expect(maskToolResult(big, 'memory', 8000)).toBe(big);
+  });
+});
 
 // -----------------------------------------------------------
 // Stop path: 'final' (natural exit)
