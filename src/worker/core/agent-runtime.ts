@@ -22,6 +22,8 @@ import {
 } from './agent-loop';
 import {
   downloadAndPrepareImages,
+  downloadQuotedImages,
+  mergePrepared,
   buildImageUserMessage,
   stripImagesForPersist,
   cleanupTempPaths,
@@ -338,6 +340,15 @@ export class AgentRuntime {
       // refers to, because Feishu reply events carry only the new reply text.
       const quoted = await resolveQuotedContent(this.channel, msg);
       userText = withQuotedMessage(quoted, msg.content);
+
+      // If the quoted message carries images, download them too and merge into
+      // `prepared` so the agent can read media it's being asked about ("这张
+      // 图里是啥"). Shares one MAX_IMAGES budget with the current message's
+      // images (current-first). Best-effort, never breaks the turn.
+      if (quoted) {
+        const quotedImgs = await downloadQuotedImages(this.channel, quoted);
+        prepared = mergePrepared(prepared, quotedImgs);
+      }
 
       // `messages` is the persisted history (system prompt is NOT included).
       // Images are embedded as image_url blocks so the agent's own model can

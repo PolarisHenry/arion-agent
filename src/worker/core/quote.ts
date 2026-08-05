@@ -14,7 +14,7 @@
 // plain reply text, exactly like image ingest degrades to text-only.
 // ============================================================
 
-import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
+import type { LarkChannel, NormalizedMessage, ResourceDescriptor } from '@larksuite/channel';
 import { createLogger } from './logger';
 
 const log = createLogger('quote');
@@ -27,6 +27,10 @@ export type QuotedContent = {
   content: string;
   /** Display name of the quoted message's sender, when the SDK resolved one. */
   senderName?: string;
+  /** The quoted message's id — needed to download its media resources. */
+  messageId: string;
+  /** The quoted message's resources (images/files), if any. */
+  resources: ResourceDescriptor[];
 };
 
 /**
@@ -52,7 +56,9 @@ export async function resolveQuotedContent(
     if (!quoted) return null;
     return {
       content: (quoted.content ?? '').trim(),
-      senderName: quoted.senderName
+      senderName: quoted.senderName,
+      messageId: quoted.messageId,
+      resources: quoted.resources ?? []
     };
   } catch (err: any) {
     log.warn(`failed to resolve quoted message ${quoteId}: ${err?.message ?? err}`);
@@ -68,7 +74,10 @@ export async function resolveQuotedContent(
  *
  * Unit-testable; the channel fetch lives in {@link resolveQuotedContent}.
  */
-export function withQuotedMessage(quoted: QuotedContent | null, replyText: string): string {
+export function withQuotedMessage(
+  quoted: { content: string; senderName?: string } | null,
+  replyText: string
+): string {
   if (!quoted) return replyText;
   const body = quoted.content.trim();
   if (!body) return replyText;

@@ -5,6 +5,8 @@ import {
   stripImagesForPersist,
   isVisionRejection,
   downloadAndPrepareImages,
+  downloadQuotedImages,
+  mergePrepared,
   cleanupTempPaths,
   runWithVisionFallback,
   MAX_IMAGES,
@@ -254,5 +256,83 @@ describe('runWithVisionFallback', () => {
         hasImages: true
       })
     ).rejects.toThrow('real failure');
+  });
+});
+
+describe('downloadQuotedImages', () => {
+  function recordingChannel(downloads: Record<string, { buffer: Buffer; contentType?: string }>): {
+    channel: LarkChannel;
+    calls: { messageId: string; fileKey: string }[];
+  } {
+    const calls: { messageId: string; fileKey: string }[] = [];
+    const channel = {
+      downloadResourceWithMeta: (messageId: string, fileKey: string) => {
+        calls.push({ messageId, fileKey });
+        return Promise.resolve(downloads[fileKey] ?? { buffer: TINY_PNG });
+      }
+    } as unknown as LarkChannel;
+    return { channel, calls };
+  }
+
+  it('downloads quoted images using the quoted message id', async () => {
+    const { channel, calls } = recordingChannel({ img_q: { buffer: TINY_PNG } });
+    const out = await downloadQuotedImages(channel, {
+      messageId: 'mid-quoted',
+      resources: [{ type: 'image', fileKey: 'img_q' }]
+    });
+    expect(out).not.toBeNull();
+    expect(out!.imageBlocks).toHaveLength(1);
+    expect(calls[0]).toEqual({ messageId: 'mid-quoted', fileKey: 'img_q' });
+  });
+
+  it('returns null when the quoted message has no image resources', async () => {
+    const ch = recordingChannel({}).channel;
+    expect(await downloadQuotedImages(ch, { messageId: 'mid-q', resources: [] })).toBeNull();
+    expect(
+      await downloadQuotedImages(ch, {
+        messageId: 'mid-q',
+        resources: [{ type: 'file', fileKey: 'f1' }]
+      })
+    ).toBeNull();
+  });
+});
+
+describe('mergePrepared', () => {
+  function preparedWith(prefix: string, n: number): PreparedImages {
+    return {
+      imageBlocks: Array.from({ length: n }, (_, i) => ({
+        type: 'image_url' as const,
+        image_url: { url: `data:image/jpeg;base64,${prefix}${i}` }
+      })),
+      tempPaths: Array.from({ length: n }, (_, i) => `/tmp/${prefix}-${i}.png`)
+    };
+  }
+  const url = (b: { image_url?: { url?: string } }) => b.image_url?.url;
+
+  it('returns null when both inputs are null', () => {
+    expect(mergePrepared(null, null)).toBeNull();
+  });
+
+  it('returns the non-null side when the other is null', () => {
+    const cur = preparedWith('cur', 2);
+    const quo = preparedWith('quo', 1);
+    expect(mergePrepared(cur, null)).toEqual(cur);
+    expect(mergePrepared(null, quo)).toEqual(quo);
+  });
+
+  it('places current-message images before quoted images', () => {
+    const out = mergePrepared(preparedWith('cur', 2), preparedWith('quo', 1));
+    expect(out!.imageBlocks).toHaveLength(3);
+    expect(out!.tempPaths).toEqual(['/tmp/cur-0.png', '/tmp/cur-1.png', '/tmp/quo-0.png']);
+    expect(url(out!.imageBlocks[0] as any)).toBe('data:image/jpeg;base64,cur0');
+    expect(url(out!.imageBlocks[2] as any)).toBe('data:image/jpeg;base64,quo0');
+  });
+
+  it('caps at max, dropping quoted images first', () => {
+    const out = mergePrepared(preparedWith('cur', 3), preparedWith('quo', 3), 4);
+    expect(out!.imageBlocks).toHaveLength(4);
+    expect(out!.tempPaths).toHaveLength(4);
+    // all 3 current kept + only 1 quoted fills the 4-image budget
+    expect(url(out!.imageBlocks[3] as any)).toBe('data:image/jpeg;base64,quo0');
   });
 });

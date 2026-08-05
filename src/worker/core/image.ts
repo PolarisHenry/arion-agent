@@ -15,7 +15,7 @@ import sharp from 'sharp';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
+import type { LarkChannel, NormalizedMessage, ResourceDescriptor } from '@larksuite/channel';
 import type { ContentBlock, LlmMessage } from './llm';
 import { createLogger } from './logger';
 
@@ -54,37 +54,42 @@ export async function downloadAndPrepareImages(
     .filter((r) => r.type === 'image')
     .slice(0, MAX_IMAGES);
   if (imageResources.length === 0) return null;
+  return downloadMessageImages(channel, msg.messageId, imageResources);
+}
 
-  await mkdir(TEMP_DIR, { recursive: true }).catch(() => {
-    /* ignore — best-effort; per-file writes surface real errors below */
-  });
+/**
+ * Download images attached to a REPLY-QUOTED message (引用图) — same pipeline
+ * as the current message's images, so the agent can read media the user is
+ * replying to ("这张图里是啥"). Does NOT cap on its own: the caller merges it
+ * with the current message's images via {@link mergePrepared}, so both share
+ * one MAX_IMAGES budget (current-message images first). Best-effort, never
+ * throws — mirrors {@link downloadAndPrepareImages}.
+ */
+export async function downloadQuotedImages(
+  channel: LarkChannel,
+  quoted: { messageId: string; resources: ResourceDescriptor[] }
+): Promise<PreparedImages | null> {
+  const imageResources = quoted.resources.filter((r) => r.type === 'image');
+  if (imageResources.length === 0) return null;
+  return downloadMessageImages(channel, quoted.messageId, imageResources);
+}
 
-  const imageBlocks: ContentBlock[] = [];
-  const tempPaths: string[] = [];
-
-  for (let i = 0; i < imageResources.length; i++) {
-    const r = imageResources[i];
-    if (!r) continue;
-    try {
-      const { buffer, contentType } = await channel.downloadResourceWithMeta(
-        msg.messageId,
-        r.fileKey,
-        'image'
-      );
-      const mime = (contentType || 'image/jpeg').split(';')[0].trim().toLowerCase();
-
-      // Channel B — original bytes to disk for on-demand upload/insert.
-      const tempPath = path.join(TEMP_DIR, `${msg.messageId}-${i}.${mimeToExt(mime)}`);
-      await writeFile(tempPath, buffer);
-      tempPaths.push(tempPath);
-
-      // Channel A — resized base64 for the model to read.
-      imageBlocks.push(await prepareEmbedBlock(buffer, mime));
-    } catch (err: any) {
-      log.warn(`failed to prepare image ${i} (fileKey=${r.fileKey}): ${err?.message ?? err}`);
-    }
-  }
-
+/**
+ * Merge a current-message image set with a quoted-message image set, capping
+ * the total at `max` (default MAX_IMAGES). Current-message images come first
+ * (they are this turn's live intent), so when the combined count exceeds `max`
+ * quoted images are dropped first. Pure — unit-testable.
+ */
+export function mergePrepared(
+  current: PreparedImages | null,
+  quoted: PreparedImages | null,
+  max: number = MAX_IMAGES
+): PreparedImages | null {
+  const imageBlocks = [...(current?.imageBlocks ?? []), ...(quoted?.imageBlocks ?? [])].slice(
+    0,
+    max
+  );
+  const tempPaths = [...(current?.tempPaths ?? []), ...(quoted?.tempPaths ?? [])].slice(0, max);
   if (imageBlocks.length === 0) return null;
   return { imageBlocks, tempPaths };
 }
@@ -177,6 +182,53 @@ export async function cleanupTempPaths(paths: string[]): Promise<void> {
 // -----------------------------------------------------------
 // Internal helpers
 // -----------------------------------------------------------
+
+/** Download every image resource on a message, save each original to a temp
+ *  file (Channel B — for upload/insert via run_lark_cli) and build a resized
+ *  image_url block (Channel A — for the model to read). Best-effort per image
+ *  (failures logged + skipped). No slicing — the caller caps via MAX_IMAGES /
+ *  mergePrepared. Shared by the current-message and quoted-message paths so
+ *  both go through one ingest pipeline. */
+async function downloadMessageImages(
+  channel: LarkChannel,
+  messageId: string,
+  resources: ResourceDescriptor[]
+): Promise<PreparedImages | null> {
+  if (resources.length === 0) return null;
+
+  await mkdir(TEMP_DIR, { recursive: true }).catch(() => {
+    /* ignore — best-effort; per-file writes surface real errors below */
+  });
+
+  const imageBlocks: ContentBlock[] = [];
+  const tempPaths: string[] = [];
+
+  for (let i = 0; i < resources.length; i++) {
+    const r = resources[i];
+    if (!r) continue;
+    try {
+      const { buffer, contentType } = await channel.downloadResourceWithMeta(
+        messageId,
+        r.fileKey,
+        'image'
+      );
+      const mime = (contentType || 'image/jpeg').split(';')[0].trim().toLowerCase();
+
+      // Channel B — original bytes to disk for on-demand upload/insert.
+      const tempPath = path.join(TEMP_DIR, `${messageId}-${i}.${mimeToExt(mime)}`);
+      await writeFile(tempPath, buffer);
+      tempPaths.push(tempPath);
+
+      // Channel A — resized base64 for the model to read.
+      imageBlocks.push(await prepareEmbedBlock(buffer, mime));
+    } catch (err: any) {
+      log.warn(`failed to prepare image ${i} (fileKey=${r.fileKey}): ${err?.message ?? err}`);
+    }
+  }
+
+  if (imageBlocks.length === 0) return null;
+  return { imageBlocks, tempPaths };
+}
 
 /** Resize for the vision embed: long edge ≤ MAX_IMAGE_DIM, re-encode JPEG q80,
  *  downscale only. Falls back to the original bytes (original mime) if sharp

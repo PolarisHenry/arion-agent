@@ -58,13 +58,21 @@ describe('resolveQuotedContent', () => {
     expect(await resolveQuotedContent(ch, msgWithReply(undefined))).toBeNull();
   });
 
-  it('returns trimmed content + senderName when fetch succeeds', async () => {
+  it('returns content, senderName, messageId and resources when fetch succeeds', async () => {
     const ch = mockChannel(
-      () => ({ content: ' quoted text ', senderName: '李四' }) as NormalizedMessage
+      () =>
+        ({
+          content: ' quoted text ',
+          senderName: '李四',
+          messageId: 'mid-quoted',
+          resources: [{ type: 'image', fileKey: 'img_quoted' }]
+        }) as NormalizedMessage
     );
     expect(await resolveQuotedContent(ch, msgWithReply('mid-q'))).toEqual({
       content: 'quoted text',
-      senderName: '李四'
+      senderName: '李四',
+      messageId: 'mid-quoted',
+      resources: [{ type: 'image', fileKey: 'img_quoted' }]
     });
   });
 
