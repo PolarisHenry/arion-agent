@@ -536,6 +536,11 @@ export const translations = {
     'Loading...': 'Loading...',
     'Sign up failed': 'Sign up failed',
     'Sign in failed': 'Sign in failed',
+    'Your account has been disabled': 'Your account has been disabled',
+    'No Access': 'No Access',
+    'You do not have permission to access any pages. Please contact the administrator.':
+      'You do not have permission to access any pages. Please contact the administrator.',
+    'Sign Out': 'Sign Out',
     'Create a new account': 'Create a new account',
     'Your username': 'Your username',
     'Min 8 chars password': 'Min 8 chars password',
@@ -1459,6 +1464,11 @@ export const translations = {
     'Loading...': '加载中...',
     'Sign up failed': '注册失败',
     'Sign in failed': '登录失败',
+    'Your account has been disabled': '您的账号已被禁用',
+    'No Access': '无访问权限',
+    'You do not have permission to access any pages. Please contact the administrator.':
+      '您没有任何可访问的页面，请联系管理员。',
+    'Sign Out': '退出登录',
     'Create a new account': '创建新账号',
     'Your username': '你的用户名',
     'Min 8 chars password': '至少 8 位密码',

@@ -13,7 +13,7 @@ import { useTranslation } from '@/lib/i18n';
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard/overview';
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -32,7 +32,13 @@ function SignInForm() {
     });
 
     if (result?.error) {
-      setError(result.error.message || t('Sign in failed'));
+      const msg = result.error.message;
+      // ACCOUNT_DISABLED is the stable sentinel thrown by the session hook.
+      setError(
+        msg === 'ACCOUNT_DISABLED'
+          ? t('Your account has been disabled')
+          : msg || t('Sign in failed')
+      );
       setLoading(false);
       return;
     }

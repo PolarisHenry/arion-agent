@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hashPassword } from 'better-auth/crypto';
 import { db } from '@/lib/db';
-import { user, role, account } from '@/lib/auth-schema';
+import { user, role, account, session as sessionTable } from '@/lib/auth-schema';
 import { eq, and } from 'drizzle-orm';
 import { requirePermission, UnauthorizedError, ForbiddenError } from '@/lib/rbac/check';
 import { PERMISSIONS } from '@/lib/rbac/permissions';
@@ -158,6 +158,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     await db.update(user).set({ enabled }).where(eq(user.id, targetId));
+
+    // Disabling immediately invalidates all of the target's existing sessions
+    // (deletes the session rows → their session cookie no longer resolves).
+    if (!enabled) {
+      await db.delete(sessionTable).where(eq(sessionTable.userId, targetId));
+    }
 
     return NextResponse.json({ enabled });
   } catch (e) {

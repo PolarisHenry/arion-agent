@@ -47,6 +47,10 @@ export async function requirePermission(key: PermissionKey): Promise<PermissionC
     .limit(1);
   if (!fullUser) throw new UnauthorizedError();
 
+  // Disabled accounts (toggled in admin UI) are treated as logged out at the
+  // API layer, so a stale session from a since-disabled user can't call anything.
+  if (!fullUser.enabled) throw new UnauthorizedError();
+
   // tenantId = master account id
   const tenantId = fullUser.ownerId ?? fullUser.id;
 
