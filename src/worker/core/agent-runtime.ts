@@ -28,6 +28,7 @@ import {
   runWithVisionFallback,
   type PreparedImages
 } from './image';
+import { resolveQuotedContent, withQuotedMessage } from './quote';
 import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { loadMemoryFacts, renderMemorySection } from './agent-memory';
@@ -307,6 +308,10 @@ export class AgentRuntime {
     // before the loop and cleaned up after it; declared out here so cleanup
     // runs even if the turn throws before/inside the loop.
     let prepared: PreparedImages | null = null;
+    // Effective user-facing text (reply + any resolved quote block). Declared
+    // out here so the error-path writeLog can record what the model was fed
+    // even when the turn throws mid-processing.
+    let userText: string = msg.content;
 
     try {
       // Build conversation context. The system prompt is re-injected fresh on
@@ -327,11 +332,18 @@ export class AgentRuntime {
       // there are none or every download failed — never breaks the turn.
       prepared = await downloadAndPrepareImages(this.channel, msg);
 
+      // Resolve the message this reply quotes (引用消息), if any. Best-effort
+      // like image ingest — a missing/forbidden quote degrades to the plain
+      // reply text. Without this the agent can't see what "这个" / "上面那条"
+      // refers to, because Feishu reply events carry only the new reply text.
+      const quoted = await resolveQuotedContent(this.channel, msg);
+      userText = withQuotedMessage(quoted, msg.content);
+
       // `messages` is the persisted history (system prompt is NOT included).
       // Images are embedded as image_url blocks so the agent's own model can
       // read them; a temp-file path rides along in the text so the model can
       // also upload/insert them on demand. See image.ts for the fallback.
-      const userMessage = buildImageUserMessage(msg.content, prepared, { withVision: true });
+      const userMessage = buildImageUserMessage(userText, prepared, { withVision: true });
       const messages: Message[] = [...sessionHistory, userMessage];
 
       // Get enabled tools
@@ -388,7 +400,7 @@ export class AgentRuntime {
         fallback: () =>
           runLoop([
             ...sessionHistory,
-            buildImageUserMessage(msg.content, prepared, { withVision: false })
+            buildImageUserMessage(userText, prepared, { withVision: false })
           ]),
         hasImages: Boolean(prepared && prepared.imageBlocks.length > 0),
         onRetry: () => log.warn('model rejected image (HTTP 400), retrying turn without vision')
@@ -452,7 +464,7 @@ export class AgentRuntime {
         ownerId: this.agentRow.ownerId,
         chatId,
         type: 'message',
-        messageContent: msg.content,
+        messageContent: userText,
         responseContent: finalResponse || '(no text response)',
         toolCalls: toolCallLog.length > 0 ? toolCallLog : undefined,
         tokensUsed: totalTokens,
@@ -477,7 +489,7 @@ export class AgentRuntime {
         ownerId: this.agentRow.ownerId,
         chatId,
         type: 'message',
-        messageContent: msg.content,
+        messageContent: userText,
         status: 'error',
         error: err?.message ?? String(err),
         durationMs
