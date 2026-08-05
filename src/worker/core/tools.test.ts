@@ -153,6 +153,21 @@ describe('memory tool', () => {
     expect(out).toContain('未找到');
   });
 
+  it('list shows the real key (not just the label) so delete can target it', async () => {
+    listMemoryFacts.mockResolvedValue([
+      {
+        key: 'car.camping_mode',
+        value: 'off',
+        label: '车辆露营模式状态',
+        category: 'status'
+      } as any
+    ]);
+    const out = await executeTool('memory', { action: 'list' }, ctx);
+    expect(out).toContain('car.camping_mode');
+    expect(out).toContain('车辆露营模式状态');
+    expect(out).toContain('[status]');
+  });
+
   it('missing agentId returns the context error', async () => {
     const out = await executeTool('memory', { action: 'list' }, {} as any);
     expect(out).toContain('[memory] missing agent context');

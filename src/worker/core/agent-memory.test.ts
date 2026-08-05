@@ -22,10 +22,22 @@ describe('renderMemorySection', () => {
     expect(renderMemorySection([])).toBe('');
   });
 
-  it('renders header + one fact (label: value)', () => {
+  it('renders header + one fact, always exposing the real key', () => {
     const out = renderMemorySection([fact()]);
     expect(out).toContain('已记下的信息');
-    expect(out).toContain('记账表格 token: UXgbsmXpdhE26FtWhMWc95uDnKd');
+    expect(out).toContain('accounting.spreadsheet_token');
+    expect(out).toContain('记账表格 token');
+    expect(out).toContain('UXgbsmXpdhE26FtWhMWc95uDnKd');
+  });
+
+  it('appends the label in parens only when it differs from the key', () => {
+    const withLabel = renderMemorySection([
+      fact({ key: 'car.camping_mode', label: '车辆露营模式状态', category: 'status' })
+    ]);
+    expect(withLabel).toContain('car.camping_mode（车辆露营模式状态）');
+    const sameAsKey = renderMemorySection([fact({ key: 'finance.token', label: 'finance.token' })]);
+    expect(sameAsKey).toContain('[resource] finance.token:');
+    expect(sameAsKey).not.toContain('（finance.token）');
   });
 
   it('prefixes category and appends note', () => {
@@ -180,6 +192,49 @@ describe('saveMemoryFact', () => {
     });
     expect(res.ok).toBe(false);
     expect((res as any).error).toContain('expiresAt');
+  });
+
+  it('rejects a key containing Chinese', async () => {
+    const res = await saveMemoryFact({
+      agentId: 'a1',
+      ownerId: 'o1',
+      key: '记账排序规则',
+      value: 'v'
+    });
+    expect(res.ok).toBe(false);
+    expect((res as any).error).toContain('snake_case');
+    expect(workerDb.insert as any).not.toHaveBeenCalled();
+  });
+
+  it('rejects a key with mixed ascii + Chinese', async () => {
+    const res = await saveMemoryFact({
+      agentId: 'a1',
+      ownerId: 'o1',
+      key: 'preference.记账排序',
+      value: 'v'
+    });
+    expect(res.ok).toBe(false);
+    expect(workerDb.insert as any).not.toHaveBeenCalled();
+  });
+
+  it('rejects a key with spaces', async () => {
+    const res = await saveMemoryFact({
+      agentId: 'a1',
+      ownerId: 'o1',
+      key: 'accounting rule',
+      value: 'v'
+    });
+    expect(res.ok).toBe(false);
+  });
+
+  it('accepts dotted snake_case / kebab-case keys', async () => {
+    const res = await saveMemoryFact({
+      agentId: 'a1',
+      ownerId: 'o1',
+      key: 'workflow.accounting-to-inventory-sync',
+      value: 'v'
+    });
+    expect(res).toEqual({ ok: true });
   });
 
   it('upserts on valid input (insert + onConflictDoUpdate)', async () => {

@@ -48,17 +48,19 @@ export function renderMemorySection(facts: MemoryFact[]): string {
       break;
     }
     const cat = f.category ? `[${f.category}] ` : '';
-    const label = f.label ?? f.key;
+    // Always surface the real key so the LLM can delete/get by it; the
+    // human-readable label is appended in parens only when it differs.
+    const label = f.label && f.label !== f.key ? `（${f.label}）` : '';
     const val = f.value.length > 80 ? `${f.value.slice(0, 77)}…` : f.value;
     const note = f.note ? `（${f.note}）` : '';
-    lines.push(`- ${cat}${label}: ${val}${note}`);
+    lines.push(`- ${cat}${f.key}${label}: ${val}${note}`);
     if (lines.join('\n').length > MAX_SECTION_CHARS) {
       truncated = true;
       break;
     }
   }
   const header =
-    '## 已记下的信息（长期记忆，/clear 不会丢）\n（若以下任何一条与你本轮掌握的最新事实矛盾或已过时，请用 memory save 同 key 覆盖更新，或 memory delete 清理，别留着错信息误导自己。）';
+    '## 已记下的信息（长期记忆，/clear 不会丢）\n（每行方括号后、冒号前的英文串就是这条的 key。若任何一条与本轮最新事实矛盾或已过时，用 memory save 同 key 覆盖、或 memory delete 该 key 清理——必须照抄这个 key，别拿后面的中文标签当 key。别留着错信息误导自己。）';
   const footer = truncated ? '\n（更多请用 memory list 查看）' : '';
   return `\n\n${header}\n${lines.join('\n')}${footer}`;
 }
@@ -68,6 +70,18 @@ export function renderMemorySection(facts: MemoryFact[]): string {
 // -----------------------------------------------------------
 
 const MAX_VALUE_CHARS = 4096;
+const MAX_KEY_CHARS = 128;
+// Keys must be stable, reproducible machine identifiers — lowercase ASCII
+// snake_case / kebab-case, optionally dotted into namespaces. Chinese,
+// spaces, and punctuation are rejected because the LLM can't reproduce them
+// across turns, which spawns duplicate rows and makes delete/get miss. '-'
+// is allowed so existing keys like workflow.accounting-to-inventory-sync
+// stay valid.
+const KEY_RE = /^[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
+
+export function isValidMemoryKey(key: string): boolean {
+  return key.length > 0 && key.length <= MAX_KEY_CHARS && KEY_RE.test(key);
+}
 
 export type SaveMemoryInput = {
   agentId: string;
@@ -101,6 +115,12 @@ function toFact(row: typeof agentSchema.agentMemory.$inferSelect): MemoryFact {
 export async function saveMemoryFact(input: SaveMemoryInput): Promise<SaveResult> {
   const key = input.key.trim();
   if (!key) return { ok: false, error: 'key is required' };
+  if (!isValidMemoryKey(key))
+    return {
+      ok: false,
+      error:
+        'key must be lowercase snake_case/kebab-case, dotted by namespace (a-z 0-9 _ - .), e.g. accounting.spreadsheet_token'
+    };
   if (!input.value) return { ok: false, error: 'value is required' };
   if (input.value.length > MAX_VALUE_CHARS)
     return { ok: false, error: `value too long (max ${MAX_VALUE_CHARS} chars)` };

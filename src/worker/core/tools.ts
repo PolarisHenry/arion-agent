@@ -159,7 +159,11 @@ const TOOL_DEFS: LlmTool[] = [
             enum: ['save', 'get', 'list', 'delete'],
             description: 'save/get/list/delete'
           },
-          key: { type: 'string', description: '稳定机器键，如 accounting.spreadsheet_token' },
+          key: {
+            type: 'string',
+            description:
+              '稳定机器键：小写 snake_case/kebab-case，可点分命名空间，只允许 a-z 0-9 _ - .（如 accounting.spreadsheet_token、workflow.sync）。禁止中文/空格/标点。delete/get 必须用 list 里看到的原 key，不是后面的中文标签。'
+          },
           value: { type: 'string', description: 'save: 事实值（≤4096 字符）' },
           label: { type: 'string', description: 'save: 人类可读标签' },
           category: {
@@ -516,7 +520,10 @@ async function executeMemoryTool(args: Record<string, unknown>, ctx: ToolContext
       );
       if (facts.length === 0) return '（暂无记忆）';
       return facts
-        .map((f) => `- [${f.category ?? '-'}] ${f.label ?? f.key}: ${f.value.slice(0, 80)}`)
+        .map((f) => {
+          const label = f.label && f.label !== f.key ? `（${f.label}）` : '';
+          return `- [${f.category ?? '-'}] ${f.key}${label}: ${f.value.slice(0, 80)}`;
+        })
         .join('\n');
     }
     if (action === 'delete') {
