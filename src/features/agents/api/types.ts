@@ -49,9 +49,13 @@ export type AgentMutationPayload = {
   name: string;
   description?: string;
   avatar?: string;
-  appId: string;
+  /** Lark only. Required on Lark create; omitted for WeChat (no Feishu app). */
+  appId?: string;
   /** Plain, required on create, optional on update. */
   appSecret?: string;
+  /** WeChat only: id of the linked Lark agent whose Feishu identity is borrowed
+   *  (null/empty to unlink). */
+  linkedAgentId?: string | null;
   systemPrompt: string;
   llmModelId: string;
   status?: AgentStatus;

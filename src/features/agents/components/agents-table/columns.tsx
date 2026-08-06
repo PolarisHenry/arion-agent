@@ -88,7 +88,13 @@ export function useAgentColumns(): ColumnDef<Agent>[] {
       size: 120,
       enableSorting: false,
       header: ({ column }) => <DataTableColumnHeader column={column} title={t('User Identity')} />,
-      cell: ({ row }) => <AgentAuthCell agentId={row.original.id} />,
+      cell: ({ row }) =>
+        row.original.platform === 'wechat' ? (
+          // WeChat identity comes from the QR scan (no Feishu user OAuth) — nothing to show here.
+          <span className='text-muted-foreground text-xs'>—</span>
+        ) : (
+          <AgentAuthCell agentId={row.original.id} />
+        ),
       meta: { label: t('User Identity') }
     },
     {

@@ -90,6 +90,23 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (body.description !== undefined) updates.description = body.description;
     if (body.avatar !== undefined) updates.avatar = body.avatar;
     if (body.appId !== undefined) updates.appId = body.appId;
+    if (body.linkedAgentId !== undefined) {
+      // WeChat only: link to a Lark agent to borrow its Feishu identity, or null to unlink.
+      const lid = body.linkedAgentId ? String(body.linkedAgentId) : null;
+      if (lid) {
+        const [linked] = await db
+          .select()
+          .from(agent)
+          .where(and(eq(agent.id, lid), eq(agent.ownerId, tenantId)))
+          .limit(1);
+        if (!linked || (linked.platform ?? 'lark') !== 'lark')
+          return NextResponse.json(
+            { error: 'Linked agent must be a Lark agent in your tenant' },
+            { status: 400 }
+          );
+      }
+      updates.linkedAgentId = lid;
+    }
     if (body.systemPrompt !== undefined) updates.systemPrompt = body.systemPrompt;
     if (body.status !== undefined) updates.status = body.status;
     if (body.llmModelId !== undefined) {

@@ -388,20 +388,23 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
   });
 
   const handleSubmit = () => {
-    if (!name.trim() || !appId.trim() || !systemPrompt.trim() || !llmModelId) return;
+    if (!name.trim() || !systemPrompt.trim() || !llmModelId) return;
+    if (platform === 'lark' && !appId.trim()) return;
     const base: AgentMutationPayload = {
       name: name.trim(),
       description: description.trim() || undefined,
-      appId: appId.trim(),
       systemPrompt: systemPrompt.trim(),
       llmModelId,
       status: 'active'
     };
+    if (platform === 'lark') base.appId = appId.trim();
+    if (platform === 'wechat') base.linkedAgentId = linkedAgentId.trim() || null;
     if (isEdit && agent) {
       const values: Partial<AgentMutationPayload> = { ...base };
-      if (appSecret.trim()) values.appSecret = appSecret.trim();
+      if (platform === 'lark' && appSecret.trim()) values.appSecret = appSecret.trim();
       updateMutation.mutate({ id: agent.id, values });
     } else {
+      // Create — Lark only (WeChat create goes through the scan widget).
       if (!appSecret.trim()) return;
       createMutation.mutate({ ...base, appSecret: appSecret.trim() });
     }
@@ -546,8 +549,8 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
             </div>
           )}
 
-          {/* WeChat — optional Feishu link + scan to create */}
-          {platform === 'wechat' && !isEdit && (
+          {/* WeChat — optional Feishu link (create + edit) + scan-to-create (create only) */}
+          {platform === 'wechat' && (
             <div className='space-y-4'>
               <div className='space-y-2'>
                 <Label>{t('Link Feishu agent')}</Label>
@@ -556,7 +559,13 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
                   onValueChange={(v) => setLinkedAgentId(v === '__none__' ? '' : (v ?? ''))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={t('No Feishu link')} />
+                    <SelectValue>
+                      {(v) =>
+                        !v || v === '__none__'
+                          ? t('No Feishu link')
+                          : (larkAgents.find((a) => a.id === v)?.name ?? v)
+                      }
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value='__none__'>{t('No Feishu link')}</SelectItem>
@@ -573,19 +582,21 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
                   )}
                 </p>
               </div>
-              <WeChatLoginWidget
-                payload={{
-                  name,
-                  systemPrompt,
-                  llmModelId,
-                  description,
-                  linkedAgentId: linkedAgentId || undefined
-                }}
-                onConfirmed={() => {
-                  getQueryClient().invalidateQueries({ queryKey: agentKeys.all });
-                  onOpenChange(false);
-                }}
-              />
+              {!isEdit && (
+                <WeChatLoginWidget
+                  payload={{
+                    name,
+                    systemPrompt,
+                    llmModelId,
+                    description,
+                    linkedAgentId: linkedAgentId || undefined
+                  }}
+                  onConfirmed={() => {
+                    getQueryClient().invalidateQueries({ queryKey: agentKeys.all });
+                    onOpenChange(false);
+                  }}
+                />
+              )}
             </div>
           )}
 
