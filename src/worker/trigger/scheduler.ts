@@ -14,6 +14,13 @@ import type { AuthHooks } from '../core/tools';
 
 const log = createLogger('scheduler');
 
+/** Backoff for re-arming a one-shot reminder whose send failed (e.g. WeChat
+ *  context_token stale, agent momentarily down). The poll loop runs every 10s,
+ *  so without bumping fireAt a re-armed one-shot would retry 6×/min. Reminders
+ *  are idempotent (pure text send), so retry-until-delivered is safe; one-shot
+ *  tasks are NOT re-armed (an agent turn can have irreversible side effects). */
+const ONE_SHOT_REMINDER_RETRY_MS = 2 * 60 * 1000;
+
 type ActiveTrigger = {
   row: typeof agentSchema.agentTrigger.$inferSelect;
   job: ScheduledTask;
@@ -249,6 +256,20 @@ export class Scheduler {
         error: err?.message ?? String(err),
         durationMs: Date.now() - startTime
       });
+      // One-shot REMINDER that failed to send (e.g. WeChat token stale / agent
+      // down): re-arm with a backoff instead of leaving it marked complete and
+      // silently lost. It retries until it actually delivers. Tasks are exempt
+      // — an agent turn can have side effects we mustn't replay.
+      if (oneShot && triggerRow.kind === 'reminder') {
+        const retryAt = new Date(Date.now() + ONE_SHOT_REMINDER_RETRY_MS);
+        await workerDb
+          .update(agentSchema.agentTrigger)
+          .set({ enabled: true, completedAt: null, fireAt: retryAt })
+          .where(eq(agentSchema.agentTrigger.id, triggerRow.id));
+        log.warn(
+          `reminder "${triggerRow.name}" send failed — re-armed to retry at ${retryAt.toISOString()}`
+        );
+      }
     }
   }
 

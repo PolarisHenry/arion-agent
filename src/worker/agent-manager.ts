@@ -130,12 +130,13 @@ export class AgentManager {
   /**
    * Send a message to a chat on behalf of an agent.
    * Used by the Scheduler to deliver proactive trigger results.
+   * Throws when the agent isn't running so the caller (scheduler) logs a real
+   * error instead of recording a false "success" for a message never sent.
    */
   async sendForAgent(agentId: string, chatId: string, content: string): Promise<void> {
     const runtime = this.runtimes.get(agentId);
     if (!runtime) {
-      log.warn(`sendForAgent: agent ${agentId} not running`);
-      return;
+      throw new Error(`agent ${agentId} not running`);
     }
     await runtime.sendToChat(chatId, content);
   }

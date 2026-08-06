@@ -41,10 +41,12 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
               <span className='text-muted-foreground'>{t('Persona')}: </span>
               <span>{matchPresetName(agent.systemPrompt) || t('Custom')}</span>
             </div>
-            <div>
-              <span className='text-muted-foreground'>{t('App ID')}: </span>
-              <span className='font-mono'>{agent.appId}</span>
-            </div>
+            {agent.platform !== 'wechat' && (
+              <div>
+                <span className='text-muted-foreground'>{t('App ID')}: </span>
+                <span className='font-mono'>{agent.appId}</span>
+              </div>
+            )}
             <div>
               <span className='text-muted-foreground'>{t('Status')}: </span>
               <Badge
@@ -72,10 +74,13 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
         </CardContent>
       </Card>
 
-      {/* User identity panel */}
-      <Suspense fallback={<div className='bg-muted h-32 w-full animate-pulse rounded-lg' />}>
-        <UserIdentityPanel agentId={agentId} />
-      </Suspense>
+      {/* User identity panel — Feishu user OAuth only. WeChat identity comes
+          from the QR scan (no user authorization step), so hide it there. */}
+      {agent.platform !== 'wechat' && (
+        <Suspense fallback={<div className='bg-muted h-32 w-full animate-pulse rounded-lg' />}>
+          <UserIdentityPanel agentId={agentId} />
+        </Suspense>
+      )}
 
       {/* Tabs: Overview / Logs */}
       <Tabs defaultValue='logs'>
