@@ -4,27 +4,42 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/lib/i18n';
 import { toast } from 'sonner';
-import { startWechatLogin, pollWechatLogin, type WechatLoginStatus } from '../api/service';
+import {
+  startWechatLogin,
+  startWechatReauth,
+  pollWechatLogin,
+  type WechatLoginStatus
+} from '../api/service';
 
 // ============================================================
-// WeChatLoginWidget — scan-to-create a WeChat (iLink) agent.
-// POSTs to /api/agents/wechat-login, polls status, renders the QR
-// (reusing the generic register-app/qr image endpoint), and calls
-// onConfirmed once the server has inserted the agent row.
+// WeChatLoginWidget — scan-to-create OR re-scan an existing
+// WeChat (iLink) agent.
+//  · create:  POSTs a new agent's fields, polls status, renders QR
+//             (reusing the generic register-app/qr image endpoint).
+//  · reauth:  re-scans an existing agent whose session expired (-14);
+//             the server refreshes its identity + clears needsReauth.
+// Calls onConfirmed once the server has confirmed the scan.
 // ============================================================
+
+interface CreatePayload {
+  name: string;
+  systemPrompt: string;
+  llmModelId: string;
+  description?: string;
+  linkedAgentId?: string;
+}
 
 interface Props {
-  payload: {
-    name: string;
-    systemPrompt: string;
-    llmModelId: string;
-    description?: string;
-    linkedAgentId?: string;
-  };
+  /** 'create' = new agent (needs payload); 'reauth' = re-scan existing (needs agentId). */
+  mode?: 'create' | 'reauth';
+  /** create mode only. */
+  payload?: CreatePayload;
+  /** reauth mode only. */
+  agentId?: string;
   onConfirmed: () => void;
 }
 
-export function WeChatLoginWidget({ payload, onConfirmed }: Props) {
+export function WeChatLoginWidget({ mode = 'create', payload, agentId, onConfirmed }: Props) {
   const { t } = useTranslation();
   const [url, setUrl] = useState<string>('');
   const [status, setStatus] = useState<WechatLoginStatus['status'] | 'idle' | 'starting'>('idle');
@@ -43,20 +58,27 @@ export function WeChatLoginWidget({ payload, onConfirmed }: Props) {
   useEffect(() => () => stop(), [stop]);
 
   const start = useCallback(async () => {
-    if (!payload.name.trim() || !payload.systemPrompt.trim() || !payload.llmModelId) {
-      toast.error(t('Fill name, system prompt, and LLM first'));
+    if (mode === 'create') {
+      if (!payload?.name.trim() || !payload?.systemPrompt.trim() || !payload?.llmModelId) {
+        toast.error(t('Fill name, system prompt, and LLM first'));
+        return;
+      }
+    } else if (!agentId) {
       return;
     }
     setStatus('starting');
     setError('');
     try {
-      const { sessionId } = await startWechatLogin({
-        name: payload.name.trim(),
-        systemPrompt: payload.systemPrompt.trim(),
-        llmModelId: payload.llmModelId,
-        description: payload.description?.trim() || undefined,
-        linkedAgentId: payload.linkedAgentId || undefined
-      });
+      const { sessionId } =
+        mode === 'create'
+          ? await startWechatLogin({
+              name: payload!.name.trim(),
+              systemPrompt: payload!.systemPrompt.trim(),
+              llmModelId: payload!.llmModelId,
+              description: payload!.description?.trim() || undefined,
+              linkedAgentId: payload!.linkedAgentId || undefined
+            })
+          : await startWechatReauth(agentId!);
       setStatus('pending');
       timerRef.current = setInterval(async () => {
         try {
@@ -66,7 +88,7 @@ export function WeChatLoginWidget({ payload, onConfirmed }: Props) {
           if (s.error) setError(s.error);
           if (s.status === 'confirmed') {
             stop();
-            toast.success(t('WeChat agent created'));
+            toast.success(t(mode === 'create' ? 'WeChat agent created' : 'WeChat re-authorized'));
             onConfirmedRef.current();
           } else if (s.status === 'error' || s.status === 'unknown') {
             stop();
@@ -79,7 +101,7 @@ export function WeChatLoginWidget({ payload, onConfirmed }: Props) {
       setStatus('error');
       setError(err?.message || 'Failed');
     }
-  }, [payload, t, stop]);
+  }, [mode, payload, agentId, t, stop]);
 
   const reset = useCallback(() => {
     stop();
@@ -103,7 +125,7 @@ export function WeChatLoginWidget({ payload, onConfirmed }: Props) {
 
       {!showQr && status !== 'confirmed' && (
         <Button type='button' variant='outline' className='w-full' onClick={start} isLoading={busy}>
-          {t('Scan to create (WeChat)')}
+          {mode === 'create' ? t('Scan to create (WeChat)') : t('Re-scan')}
         </Button>
       )}
 
@@ -135,7 +157,7 @@ export function WeChatLoginWidget({ payload, onConfirmed }: Props) {
 
       {status === 'confirmed' && (
         <p className='text-center text-sm font-medium text-green-600'>
-          ✅ {t('WeChat agent created')}
+          ✅ {mode === 'create' ? t('WeChat agent created') : t('WeChat re-authorized')}
         </p>
       )}
       {status === 'error' && (

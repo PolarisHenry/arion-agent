@@ -3,6 +3,8 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { getAgentById } from '../../api/service';
+import { agentKeys } from '../../api/queries';
+import { getQueryClient } from '@/lib/query-client';
 import { AgentLogPanel, AgentLogPanelSkeleton } from './agent-log-panel';
 import { AgentMemoryPanel, AgentMemoryPanelSkeleton } from './agent-memory-panel';
 import { useTranslation } from '@/lib/i18n';
@@ -10,6 +12,7 @@ import { Suspense } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UserIdentityPanel } from '@/features/agent-auth/components/user-identity-panel';
+import { WeChatLoginWidget } from '../wechat-login-widget';
 import { matchPresetName } from '../../presets';
 
 export function AgentDetailTabs({ agentId }: { agentId: string }) {
@@ -74,9 +77,38 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
         </CardContent>
       </Card>
 
-      {/* User identity panel — Feishu user OAuth only. WeChat identity comes
-          from the QR scan (no user authorization step), so hide it there. */}
-      {agent.platform !== 'wechat' && (
+      {/* Identity panel — Feishu agents show user-OAuth status; WeChat agents
+          show a re-scan card (their identity is the QR scan, refreshed here
+          when the session expires / -14). This is the only re-scan entry point. */}
+      {agent.platform === 'wechat' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className='inline-flex items-center gap-2'>
+              {t('WeChat account')}
+              {agent.platformConfig?.needsReauth && (
+                <Badge variant='destructive' className='text-xs'>
+                  {t('Re-scan required')}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='space-y-3'>
+            {agent.platformConfig?.needsReauth && (
+              <div className='rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
+                ⚠️ {t('WeChat session expired — re-scan required')}
+              </div>
+            )}
+            <WeChatLoginWidget
+              mode='reauth'
+              agentId={agentId}
+              onConfirmed={() => {
+                getQueryClient().invalidateQueries({ queryKey: ['agent-detail', agentId] });
+                getQueryClient().invalidateQueries({ queryKey: agentKeys.all });
+              }}
+            />
+          </CardContent>
+        </Card>
+      ) : (
         <Suspense fallback={<div className='bg-muted h-32 w-full animate-pulse rounded-lg' />}>
           <UserIdentityPanel agentId={agentId} />
         </Suspense>

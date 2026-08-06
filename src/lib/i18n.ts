@@ -792,6 +792,10 @@ export const translations = {
     'Waiting for scan...': 'Waiting for scan...',
     'Scanned — awaiting confirmation': 'Scanned — awaiting confirmation',
     'WeChat agent created': 'WeChat agent created',
+    'Re-scan': 'Re-scan',
+    'WeChat re-authorized': 'WeChat re-authorized',
+    'WeChat account': 'WeChat account',
+    'WeChat session expired — re-scan required': 'WeChat session expired — re-scan required',
     'Fill name, system prompt, and LLM first': 'Fill name, system prompt, and LLM first',
     'WeChat login uses an unofficial channel (iLink) — use an account whose loss you can accept.':
       'WeChat login uses an unofficial channel (iLink) — use an account whose loss you can accept.',
@@ -1728,6 +1732,10 @@ export const translations = {
     'Waiting for scan...': '等待扫码…',
     'Scanned — awaiting confirmation': '已扫码，等待确认',
     'WeChat agent created': '微信 agent 已创建',
+    'Re-scan': '重新扫码',
+    'WeChat re-authorized': '微信已重新授权',
+    'WeChat account': '微信账号',
+    'WeChat session expired — re-scan required': '微信会话已过期，需要重新扫码',
     'Fill name, system prompt, and LLM first': '请先填写名称、系统提示词和 LLM',
     'WeChat login uses an unofficial channel (iLink) — use an account whose loss you can accept.':
       '微信登录走非官方通道（iLink），请使用可承担封号损失的账号。',
