@@ -15,9 +15,10 @@ vi.mock('./lark-executor', () => ({
   larkSchema: vi.fn(async () => 'schema')
 }));
 
-import { getTools, isUserRequired, executeTool } from './tools';
+import { getTools, executeTool } from './tools';
+import { larkCliRequiresUser } from './lark-tools';
 import { saveMemoryFact, getMemoryFact, listMemoryFacts, deleteMemoryFact } from './agent-memory';
-import { readSkill } from './lark-executor';
+import { readSkill, runLarkCli } from './lark-executor';
 
 beforeEach(() => {
   saveMemoryFact.mockReset();
@@ -26,10 +27,17 @@ beforeEach(() => {
   deleteMemoryFact.mockReset();
   readSkill.mockReset();
   readSkill.mockResolvedValue('skill content');
+  runLarkCli.mockReset();
+  runLarkCli.mockResolvedValue('ok');
 });
 
 describe('getTools', () => {
-  it('returns the 3 generic tools + manage_schedule + memory', () => {
+  it('returns the 5 tools in stable order (lark trio → schedule → memory)', () => {
+    const names = getTools().map((t) => t.function.name);
+    expect(names).toEqual(['read_skill', 'schema', 'run_lark_cli', 'manage_schedule', 'memory']);
+  });
+
+  it('returns the same 5 names regardless of order when sorted', () => {
     const names = getTools().map((t) => t.function.name);
     expect(names.sort()).toEqual([
       'manage_schedule',
@@ -38,6 +46,75 @@ describe('getTools', () => {
       'run_lark_cli',
       'schema'
     ]);
+  });
+
+  it('feishuLinked=false drops the 3 lark-cli tools, keeps schedule + memory', () => {
+    const names = getTools(false).map((t) => t.function.name);
+    expect(names).toEqual(['manage_schedule', 'memory']);
+  });
+});
+
+describe('registry dispatch', () => {
+  const ctx = { profile: 'prof1', appId: 'cli_x' } as any;
+
+  it('unknown tool returns "Unknown tool: <name>"', async () => {
+    const out = await executeTool('no_such_tool', {}, ctx);
+    expect(out).toBe('Unknown tool: no_such_tool');
+  });
+
+  it('run_lark_cli with --as user short-circuits when the agent has no user identity', async () => {
+    const out = await executeTool(
+      'run_lark_cli',
+      { argv: ['calendar', '+agenda', '--as', 'user'] },
+      { ...ctx, asUser: false }
+    );
+    expect(out).toContain('[需要用户授权]');
+    expect(runLarkCli).not.toHaveBeenCalled();
+  });
+
+  it('run_lark_cli with --as bot runs normally (no identity gate)', async () => {
+    const out = await executeTool(
+      'run_lark_cli',
+      { argv: ['im', '+send', '--as', 'bot'] },
+      { ...ctx, asUser: false }
+    );
+    expect(out).toBe('ok');
+    expect(runLarkCli).toHaveBeenCalledWith(['im', '+send', '--as', 'bot'], expect.anything());
+  });
+
+  it('memory is not gated behind user identity (runs with asUser=false)', async () => {
+    listMemoryFacts.mockResolvedValue([]);
+    const out = await executeTool('memory', { action: 'list' }, {
+      agentId: 'a1',
+      ownerId: 'o1',
+      asUser: false
+    } as any);
+    expect(out).toBe('（暂无记忆）');
+    expect(listMemoryFacts).toHaveBeenCalled();
+  });
+});
+
+describe('larkCliRequiresUser (run_lark_cli identity sniff)', () => {
+  it('run_lark_cli with --as user requires user identity', () => {
+    expect(larkCliRequiresUser({ argv: ['calendar', '+agenda', '--as', 'user'] })).toBe(true);
+  });
+  it('run_lark_cli with --as bot does not', () => {
+    expect(larkCliRequiresUser({ argv: ['im', '+send', '--as', 'bot'] })).toBe(false);
+  });
+  it('run_lark_cli with --as=user (equals form) requires user identity', () => {
+    expect(larkCliRequiresUser({ argv: ['calendar', '+agenda', '--as=user'] })).toBe(true);
+  });
+  it('tracks the LAST --as (bot then user → true)', () => {
+    expect(larkCliRequiresUser({ argv: ['--as', 'bot', '--as', 'user'] })).toBe(true);
+  });
+  it('tracks the LAST --as (user then bot → false)', () => {
+    expect(larkCliRequiresUser({ argv: ['--as', 'user', '--as', 'bot'] })).toBe(false);
+  });
+  it('run_lark_cli with --as=bot (equals form) does not', () => {
+    expect(larkCliRequiresUser({ argv: ['im', '+send', '--as=bot'] })).toBe(false);
+  });
+  it('no --as at all does not require user identity', () => {
+    expect(larkCliRequiresUser({ argv: ['drive', '+ls'] })).toBe(false);
   });
 });
 
@@ -61,39 +138,6 @@ describe('read_skill dispatch', () => {
   it('calls readSkill without a path when none is given', async () => {
     await executeTool('read_skill', { domain: 'lark-calendar' }, ctx);
     expect(readSkill).toHaveBeenCalledWith('lark-calendar', ctx, undefined, undefined);
-  });
-});
-
-describe('isUserRequired', () => {
-  it('memory never requires user identity', () => {
-    expect(isUserRequired('memory', { action: 'save' })).toBe(false);
-  });
-
-  it('run_lark_cli with --as user requires user identity', () => {
-    expect(isUserRequired('run_lark_cli', { argv: ['calendar', '+agenda', '--as', 'user'] })).toBe(
-      true
-    );
-  });
-  it('run_lark_cli with --as bot does not', () => {
-    expect(isUserRequired('run_lark_cli', { argv: ['im', '+send', '--as', 'bot'] })).toBe(false);
-  });
-  it('run_lark_cli with --as=user (equals form) requires user identity', () => {
-    expect(isUserRequired('run_lark_cli', { argv: ['calendar', '+agenda', '--as=user'] })).toBe(
-      true
-    );
-  });
-  it('run_lark_cli tracks the LAST --as (bot then user → true)', () => {
-    expect(isUserRequired('run_lark_cli', { argv: ['--as', 'bot', '--as', 'user'] })).toBe(true);
-  });
-  it('run_lark_cli tracks the LAST --as (user then bot → false)', () => {
-    expect(isUserRequired('run_lark_cli', { argv: ['--as', 'user', '--as', 'bot'] })).toBe(false);
-  });
-  it('run_lark_cli with --as=bot (equals form) does not', () => {
-    expect(isUserRequired('run_lark_cli', { argv: ['im', '+send', '--as=bot'] })).toBe(false);
-  });
-  it('read_skill / schema never require user identity', () => {
-    expect(isUserRequired('read_skill', { domain: 'lark-calendar' })).toBe(false);
-    expect(isUserRequired('schema', { method: 'x.y.z' })).toBe(false);
   });
 });
 
