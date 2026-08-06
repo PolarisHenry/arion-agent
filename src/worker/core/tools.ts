@@ -192,11 +192,18 @@ const TOOL_DEFS: LlmTool[] = [
 // Public API
 // -----------------------------------------------------------
 
-/** The fixed LLM-visible tool set: 3 generic lark-cli tools + manage_schedule + memory.
- *  No per-agent enable list — every agent can drive every domain; missing
- *  permissions are surfaced reactively. */
-export function getTools(): LlmTool[] {
-  return TOOL_DEFS;
+/** Tools that dispatch to lark-cli (Feishu). Excluded when the agent has no
+ *  Feishu operational identity — i.e. an unlinked WeChat agent. A Lark agent,
+ *  or a WeChat agent linked to one, passes feishuLinked=true. manage_schedule
+ *  + memory are internal (no lark-cli) and always available. */
+const LARK_ONLY_TOOLS = new Set(['read_skill', 'schema', 'run_lark_cli']);
+
+/** The LLM-visible tool set. feishuLinked=true → all tools (agent can drive
+ *  Feishu via lark-cli); false → only the platform-agnostic subset
+ *  (manage_schedule, memory). Defaults to true so no-arg callers keep all. */
+export function getTools(feishuLinked: boolean = true): LlmTool[] {
+  if (feishuLinked) return TOOL_DEFS;
+  return TOOL_DEFS.filter((t) => !LARK_ONLY_TOOLS.has(t.function.name));
 }
 
 /** run_lark_cli requires user identity iff the LLM passed --as user (tracking

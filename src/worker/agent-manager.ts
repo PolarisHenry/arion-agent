@@ -11,6 +11,21 @@ import type { AuthHooks } from './core/tools';
 
 const log = createLogger('agent-mgr');
 
+/** Merge `needsReauth` into a wechat agent's platformConfig jsonb. */
+async function setWechatNeedsReauth(agentId: string, value: boolean): Promise<void> {
+  const [row] = await workerDb
+    .select()
+    .from(agentSchema.agent)
+    .where(eq(agentSchema.agent.id, agentId))
+    .limit(1);
+  if (!row) return;
+  const cur = (row.platformConfig as Record<string, unknown> | null) ?? {};
+  await workerDb
+    .update(agentSchema.agent)
+    .set({ platformConfig: { ...cur, needsReauth: value } })
+    .where(eq(agentSchema.agent.id, agentId));
+}
+
 export class AgentManager {
   private runtimes: Map<string, AgentRuntime> = new Map();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -66,6 +81,19 @@ export class AgentManager {
     try {
       const runtime = new AgentRuntime(row, llmRow);
       if (this.authHooks) runtime.setAuthHooks(this.authHooks);
+
+      // WeChat guard: an unprovisioned agent (no stored SDK credentials) must
+      // not reach connect() — bot.login() would block on a QR nobody scans.
+      if (!(await runtime.isProvisioned())) {
+        log2.warn(`not provisioned (no wechat credentials) — marking needsReauth, skipping`);
+        await setWechatNeedsReauth(row.id, true);
+        return;
+      }
+      // Provisioned wechat agent: clear any stale needsReauth left by a -14.
+      if ((row.platform ?? 'lark') === 'wechat') {
+        await setWechatNeedsReauth(row.id, false);
+      }
+
       await runtime.start();
       this.runtimes.set(row.id, runtime);
       log2.info('started');
@@ -118,6 +146,15 @@ export class AgentManager {
       // Reload existing agents that changed
       for (const [id, runtime] of this.runtimes) {
         await runtime.reloadFromDb();
+      }
+
+      // Drop running wechat agents whose session expired (-14 → needsReauth)
+      // so a fresh dashboard scan can restart them via the new-agent path.
+      for (const [id, runtime] of this.runtimes) {
+        if (runtime.isWechatNeedsReauth()) {
+          log.info(`agent ${runtime.name} needs reauth — dropping from runtime pool`);
+          this.runtimes.delete(id);
+        }
       }
 
       // Check for new active agents

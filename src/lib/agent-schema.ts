@@ -44,7 +44,11 @@ export const llmModel = pgTable(
 );
 
 // ============================================================
-// Agent — Feishu digital employee (tenant-scoped)
+// Agent — a digital employee bound to one platform (tenant-scoped).
+//   platform='lark'   → Feishu; config lives in appId/appSecretCipher/
+//                       larkCliProfile (typed columns).
+//   platform='wechat' → personal WeChat via iLink; identity/status in
+//                       platformConfig; the lark-* columns stay '' .
 // ============================================================
 
 export const agent = pgTable(
@@ -58,6 +62,21 @@ export const agent = pgTable(
     appId: text('app_id').notNull(),
     appSecretCipher: text('app_secret_cipher').notNull(),
     larkCliProfile: text('lark_cli_profile').notNull(),
+    /** Which platform this agent binds to. 'lark' = Feishu (uses the appId/
+     *  secret/profile columns above); 'wechat' = personal WeChat via iLink
+     *  (identity in platformConfig, lark columns are ''). Existing rows
+     *  backfill to 'lark' via the column default. */
+    platform: text('platform').notNull().default('lark'),
+    /** Platform-specific NON-secret config. WeChat: { botId, ilinkUserId,
+     *  needsReauth }. Lark: null (its config is in the typed columns).
+     *  Sensitive credentials (bot_token etc.) live in the platform SDK's own
+     *  storage dir, NOT in this column. */
+    platformConfig: jsonb('platform_config'),
+    /** WeChat only: id of the Lark agent whose Feishu operational identity
+     *  (appId/secret, lark-cli profile, user OAuth) this agent borrows to reach
+     *  the Feishu knowledge base. Null for Lark agents and unlinked WeChat.
+     *  Resolved live at runtime (single source of truth — no copied creds). */
+    linkedAgentId: text('linked_agent_id'),
     systemPrompt: text('system_prompt').notNull(),
     llmModelId: text('llm_model_id')
       .notNull()

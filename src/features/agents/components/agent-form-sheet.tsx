@@ -29,7 +29,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '@/lib/i18n';
 import { localizeApiError } from '@/lib/api-client';
 import { getQueryClient } from '@/lib/query-client';
-import { agentKeys } from '../api/queries';
+import { agentKeys, agentsQueryOptions } from '../api/queries';
 import { type Agent, type AgentMutationPayload } from '../api/types';
 import {
   startRegisterApp,
@@ -44,6 +44,7 @@ import {
   matchPresetId,
   personalizePresetPrompt
 } from '../presets';
+import { WeChatLoginWidget } from './wechat-login-widget';
 
 // ============================================================
 // One-click app creation sub-component
@@ -170,6 +171,8 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
   const isEdit = !!agent;
 
   const { data: llmData } = useSuspenseQuery(llmModelsQueryOptions({ page: 1, limit: 0 }));
+  const { data: agentsData } = useSuspenseQuery(agentsQueryOptions({ limit: 0 }));
+  const larkAgents = agentsData.agents.filter((a) => a.platform === 'lark');
 
   const [name, setName] = useState(agent?.name ?? '');
   const [description, setDescription] = useState(agent?.description ?? '');
@@ -187,6 +190,8 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
     return preset?.systemPrompt ?? '';
   });
   const [llmModelId, setLlmModelId] = useState(agent?.llmModelId ?? '');
+  const [platform, setPlatform] = useState<'lark' | 'wechat'>(agent?.platform ?? 'lark');
+  const [linkedAgentId, setLinkedAgentId] = useState<string>(agent?.linkedAgentId ?? '');
   // One-click app creation state
   const [creationState, setCreationState] = useState<AppCreationState>({ phase: 'idle' });
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -405,10 +410,9 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
   const isPending = createMutation.isPending || updateMutation.isPending;
   const canSubmit =
     name.trim() !== '' &&
-    appId.trim() !== '' &&
     systemPrompt.trim() !== '' &&
     !!llmModelId &&
-    (isEdit || appSecret.trim() !== '');
+    (platform === 'wechat' ? true : appId.trim() !== '' && (isEdit || appSecret.trim() !== ''));
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -437,88 +441,153 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
             />
           </div>
 
-          {/* Credential mode selector + content */}
-          <div className='space-y-3'>
-            <div className='space-y-2'>
-              <Label>{t('App Credential Mode')}</Label>
-              <Select
-                value={credentialMode}
-                onValueChange={(v) => {
-                  setCredentialMode(v as CredentialMode);
-                  if (v === 'create-new') {
-                    setAppId('');
-                    setAppSecret('');
-                    setCreationState({ phase: 'idle' });
-                  }
-                }}
-                disabled={isEdit}
-              >
-                <SelectTrigger>
-                  <SelectValue>
-                    {(value) =>
-                      value === 'create-new' ? t('Create New App') : t('Add Existing App')
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='create-new'>{t('Create New App')}</SelectItem>
-                  <SelectItem value='add-existing'>{t('Add Existing App')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Platform — Lark (Feishu) or WeChat (iLink) */}
+          <div className='space-y-2'>
+            <Label>{t('Platform')}</Label>
+            <Select
+              value={platform}
+              onValueChange={(v) => setPlatform((v ?? 'lark') as 'lark' | 'wechat')}
+              disabled={isEdit}
+            >
+              <SelectTrigger>
+                <SelectValue>
+                  {(v) => (v === 'wechat' ? t('WeChat') : t('Lark / Feishu'))}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='lark'>{t('Lark / Feishu')}</SelectItem>
+                <SelectItem value='wechat'>{t('WeChat')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-            {credentialMode === 'create-new' && !isEdit && (
-              <AppCreationFlow
-                state={creationState}
-                onStart={handleStartCreation}
-                onCancel={handleCancelCreation}
-                onRecreate={handleRecreate}
-              />
-            )}
-
-            {credentialMode === 'create-new' && creationState.phase === 'completed' && (
+          {/* Credentials — Lark only (appId/secret or one-click create) */}
+          {platform === 'lark' && (
+            <div className='space-y-3'>
               <div className='space-y-2'>
-                <Label htmlFor='agent-appid'>{t('App ID')}</Label>
-                <Input id='agent-appid' value={appId} disabled className='bg-muted' />
+                <Label>{t('App Credential Mode')}</Label>
+                <Select
+                  value={credentialMode}
+                  onValueChange={(v) => {
+                    setCredentialMode(v as CredentialMode);
+                    if (v === 'create-new') {
+                      setAppId('');
+                      setAppSecret('');
+                      setCreationState({ phase: 'idle' });
+                    }
+                  }}
+                  disabled={isEdit}
+                >
+                  <SelectTrigger>
+                    <SelectValue>
+                      {(value) =>
+                        value === 'create-new' ? t('Create New App') : t('Add Existing App')
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='create-new'>{t('Create New App')}</SelectItem>
+                    <SelectItem value='add-existing'>{t('Add Existing App')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            )}
 
-            {credentialMode === 'add-existing' && (
-              <>
+              {credentialMode === 'create-new' && !isEdit && (
+                <AppCreationFlow
+                  state={creationState}
+                  onStart={handleStartCreation}
+                  onCancel={handleCancelCreation}
+                  onRecreate={handleRecreate}
+                />
+              )}
+
+              {credentialMode === 'create-new' && creationState.phase === 'completed' && (
                 <div className='space-y-2'>
                   <Label htmlFor='agent-appid'>{t('App ID')}</Label>
-                  <Input
-                    id='agent-appid'
-                    value={appId}
-                    onChange={(e) => handleCredentialChange('id', e.target.value)}
-                    placeholder={t('Feishu app id (cli_xxx)')}
-                  />
+                  <Input id='agent-appid' value={appId} disabled className='bg-muted' />
                 </div>
-                <div className='space-y-2'>
-                  <Label htmlFor='agent-appsecret'>{t('App Secret')}</Label>
-                  <Input
-                    id='agent-appsecret'
-                    type='password'
-                    value={appSecret}
-                    onChange={(e) => handleCredentialChange('secret', e.target.value)}
-                    placeholder={isEdit ? agent?.appSecretMasked : ''}
-                  />
-                  {appInfoSuccess && <p className='text-xs text-green-600'>{appInfoSuccess}</p>}
-                  {appInfoError && <p className='text-xs text-red-500'>{appInfoError}</p>}
-                  {credentialValid === false && (
-                    <p className='text-xs text-red-500'>
-                      {t('App credentials are invalid, please check')}
-                    </p>
+              )}
+
+              {credentialMode === 'add-existing' && (
+                <>
+                  <div className='space-y-2'>
+                    <Label htmlFor='agent-appid'>{t('App ID')}</Label>
+                    <Input
+                      id='agent-appid'
+                      value={appId}
+                      onChange={(e) => handleCredentialChange('id', e.target.value)}
+                      placeholder={t('Feishu app id (cli_xxx)')}
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='agent-appsecret'>{t('App Secret')}</Label>
+                    <Input
+                      id='agent-appsecret'
+                      type='password'
+                      value={appSecret}
+                      onChange={(e) => handleCredentialChange('secret', e.target.value)}
+                      placeholder={isEdit ? agent?.appSecretMasked : ''}
+                    />
+                    {appInfoSuccess && <p className='text-xs text-green-600'>{appInfoSuccess}</p>}
+                    {appInfoError && <p className='text-xs text-red-500'>{appInfoError}</p>}
+                    {credentialValid === false && (
+                      <p className='text-xs text-red-500'>
+                        {t('App credentials are invalid, please check')}
+                      </p>
+                    )}
+                    {isEdit && (
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Leave blank to keep current key')}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* WeChat — optional Feishu link + scan to create */}
+          {platform === 'wechat' && !isEdit && (
+            <div className='space-y-4'>
+              <div className='space-y-2'>
+                <Label>{t('Link Feishu agent')}</Label>
+                <Select
+                  value={linkedAgentId || '__none__'}
+                  onValueChange={(v) => setLinkedAgentId(v === '__none__' ? '' : (v ?? ''))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('No Feishu link')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='__none__'>{t('No Feishu link')}</SelectItem>
+                    {larkAgents.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Link to reuse a Feishu agent appId/secret and user authorization — reads the same Feishu knowledge base. Persona and memory stay independent.'
                   )}
-                  {isEdit && (
-                    <p className='text-muted-foreground text-xs'>
-                      {t('Leave blank to keep current key')}
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+                </p>
+              </div>
+              <WeChatLoginWidget
+                payload={{
+                  name,
+                  systemPrompt,
+                  llmModelId,
+                  description,
+                  linkedAgentId: linkedAgentId || undefined
+                }}
+                onConfirmed={() => {
+                  getQueryClient().invalidateQueries({ queryKey: agentKeys.all });
+                  onOpenChange(false);
+                }}
+              />
+            </div>
+          )}
 
           <div className='space-y-2'>
             <Label htmlFor='agent-llm'>{t('Bound LLM')}</Label>
@@ -594,9 +663,11 @@ export function AgentFormSheet({ agent, open, onOpenChange }: AgentFormSheetProp
           <Button variant='outline' type='button' onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleSubmit} isLoading={isPending} disabled={!canSubmit}>
-            <Icons.check /> {isEdit ? t('Update') : t('Create')}
-          </Button>
+          {(platform === 'lark' || isEdit) && (
+            <Button onClick={handleSubmit} isLoading={isPending} disabled={!canSubmit}>
+              <Icons.check /> {isEdit ? t('Update') : t('Create')}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>

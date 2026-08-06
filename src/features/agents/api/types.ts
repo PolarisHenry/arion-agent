@@ -9,6 +9,17 @@ export type Agent = {
   appId: string;
   appSecretMasked: string;
   larkCliProfile: string;
+  /** Which platform this agent binds to. */
+  platform: 'lark' | 'wechat';
+  /** WeChat-only identity/status. botId/ilinkUserId for display; needsReauth
+   *  when the session expired (-14) and a re-scan is required. */
+  platformConfig?: {
+    botId?: string;
+    ilinkUserId?: string;
+    needsReauth?: boolean;
+  } | null;
+  /** WeChat only: id of the linked Lark agent whose Feishu identity is borrowed. */
+  linkedAgentId?: string | null;
   systemPrompt: string;
   llmModelId: string;
   llmModelName?: string;

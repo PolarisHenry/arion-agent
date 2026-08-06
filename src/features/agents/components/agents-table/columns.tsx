@@ -27,9 +27,17 @@ export function useAgentColumns(): ColumnDef<Agent>[] {
           <Link href={`/dashboard/agents/${row.original.id}`} className='flex flex-col'>
             <span className='inline-flex items-center gap-1.5'>
               <span className='font-medium hover:underline'>{row.original.name}</span>
+              <Badge variant='outline' className='text-[10px] px-1.5 py-0 leading-relaxed'>
+                {row.original.platform === 'wechat' ? t('WeChat') : t('Lark / Feishu')}
+              </Badge>
               {presetName && (
                 <Badge variant='secondary' className='text-[10px] px-1.5 py-0 leading-relaxed'>
                   {presetName}
+                </Badge>
+              )}
+              {row.original.platform === 'wechat' && row.original.platformConfig?.needsReauth && (
+                <Badge variant='destructive' className='text-[10px] px-1.5 py-0 leading-relaxed'>
+                  {t('Re-scan required')}
                 </Badge>
               )}
             </span>

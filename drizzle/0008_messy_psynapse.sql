@@ -1,0 +1,1 @@
+ALTER TABLE "agent" ADD COLUMN "linked_agent_id" text;

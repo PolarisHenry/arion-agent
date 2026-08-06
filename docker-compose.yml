@@ -28,6 +28,11 @@ services:
     environment:
       # Inside the compose network the DB host is the `db` service, not localhost.
       - DATABASE_URL=postgres://arion:arion_dev@db:5432/arion_agent
+      # WeChat (iLink) bot credentials — shared with the worker so a scan done
+      # here in the dashboard is resumed by the worker's message loop.
+      - WECHATBOT_DATA_DIR=/app/.wechatbot
+    volumes:
+      - ./.docker/wechatbot:/app/.wechatbot
     depends_on:
       db:
         condition: service_healthy
@@ -41,8 +46,11 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgres://arion:arion_dev@db:5432/arion_agent
+      - WECHATBOT_DATA_DIR=/app/.wechatbot
     volumes:
       - ./.docker/lark-cli:/root/.lark-cli
+      # WeChat (iLink) bot credentials — shared with the app (dashboard scan).
+      - ./.docker/wechatbot:/app/.wechatbot
       # lark-cli file keychain: master.key + *.enc (app secret + user token).
       # Without this, credentials are lost on every container restart.
       - ./.docker/lark-cli-keychain:/root/.local/share/lark-cli

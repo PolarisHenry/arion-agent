@@ -5,8 +5,11 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { execFileAsync } from './exec';
 import { homedir } from 'node:os';
-import { createLarkChannel, type LarkChannel, type NormalizedMessage } from '@larksuite/channel';
-import { LoggerLevel } from '@larksuiteoapi/node-sdk';
+import type { NormalizedMessage } from '@larksuite/channel';
+import { createChannel } from './platform/factory';
+import { LarkChannelAdapter } from './platform/lark-channel-adapter';
+import { WeChatChannel } from './platform/wechat-channel';
+import type { PlatformChannel, InboundMessage, TypingHandle } from './platform/channel';
 import { eq, and, inArray } from 'drizzle-orm';
 import { workerDb, agentSchema } from '../worker-db';
 import { config } from '../config';
@@ -68,7 +71,7 @@ const STREAM_CHUNK_DELAY_MS = 20;
 export class AgentRuntime {
   private agentRow: AgentRow;
   private llmRow: LlmModelRow;
-  private channel: LarkChannel;
+  private channel: PlatformChannel;
   private sessionMgr: SessionManager;
   private serializer = new ChatSerializer();
   private logTag: string;
@@ -86,6 +89,13 @@ export class AgentRuntime {
    *  self-sent messages without blocking cross-bot @-mentions. */
   private botOpenId: string = '';
 
+  /** Resolved Feishu operational identity. For a Lark agent: its own creds.
+   *  For a WeChat agent linked to a Lark agent: the linked agent's creds
+   *  (borrowed, live-resolved — no copies). feishuAppId empty → no lark-cli. */
+  private feishuAgentId: string;
+  private feishuProfile: string;
+  private feishuAppId: string;
+
   constructor(agentRow: AgentRow, llmRow: LlmModelRow) {
     this.agentRow = agentRow;
     this.llmRow = llmRow;
@@ -96,12 +106,12 @@ export class AgentRuntime {
 
     const appSecret = this.decryptAppSecret();
 
-    this.channel = createLarkChannel({
-      appId: agentRow.appId,
-      appSecret,
-      source: `arion-agent/${agentRow.name}`,
-      loggerLevel: LoggerLevel.info
-    });
+    this.channel = createChannel(agentRow, appSecret);
+
+    // Default to own identity; resolveFeishuSource() overrides for linked agents.
+    this.feishuAgentId = agentRow.id;
+    this.feishuProfile = agentRow.larkCliProfile;
+    this.feishuAppId = agentRow.appId;
   }
 
   get id() {
@@ -119,6 +129,35 @@ export class AgentRuntime {
     this.authHooks = hooks;
   }
 
+  /** Resolve this agent's Feishu operational identity. For a Lark agent (or an
+   *  unlinked WeChat agent) it's the agent's own appId/profile. For a WeChat
+   *  agent linked to a Lark agent, it borrows the linked agent's appId/profile
+   *  (and user-auth status) — single source of truth, no copied creds. Called
+   *  from start() and reloadFromDb(). */
+  private async resolveFeishuSource(): Promise<void> {
+    const log = createLogger(this.logTag);
+    const linkedId = this.agentRow.linkedAgentId;
+    if (linkedId) {
+      const [linked] = await workerDb
+        .select()
+        .from(agentSchema.agent)
+        .where(eq(agentSchema.agent.id, linkedId))
+        .limit(1);
+      if (linked && (linked.platform ?? 'lark') === 'lark' && linked.appId) {
+        this.feishuAgentId = linked.id;
+        this.feishuProfile = linked.larkCliProfile;
+        this.feishuAppId = linked.appId;
+        return;
+      }
+      log.warn(
+        `linked agent ${linkedId} missing, not lark, or has no appId — falling back to own identity`
+      );
+    }
+    this.feishuAgentId = this.agentId;
+    this.feishuProfile = this.agentRow.larkCliProfile;
+    this.feishuAppId = this.agentRow.appId;
+  }
+
   async start(): Promise<void> {
     const log = createLogger(this.logTag);
     log.info(`starting... (model: ${this.llmRow.modelName})`);
@@ -126,10 +165,14 @@ export class AgentRuntime {
     // Register this agent's app credentials with lark-cli before any tool can run.
     await this.ensureLarkProfile();
 
+    // Resolve which Feishu identity this agent uses (own vs linked) before
+    // checking user auth (which is tracked under that identity).
+    await this.resolveFeishuSource();
+
     // Check user OAuth status
     await this.refreshUserAuthStatus();
 
-    this.channel.on('message', async (msg: NormalizedMessage) => {
+    this.channel.onMessage(async (msg: InboundMessage) => {
       try {
         await this.handleMessage(msg);
       } catch (err: any) {
@@ -138,15 +181,19 @@ export class AgentRuntime {
       }
     });
 
-    this.channel.on('error', (err: any) => {
+    this.channel.onError((err: any) => {
       log.error(`channel error: ${err?.message ?? err}`);
     });
 
+    // WeChat: forward SDK session-expiry (-14) to needsReauth handling.
+    if (this.channel instanceof WeChatChannel) {
+      this.channel.setSessionExpiredHandler(() => this.onWechatSessionExpired());
+    }
+
     await this.channel.connect();
     // Capture this bot's own identity so handleMessage can skip self-sent
-    // messages. Must happen after connect() — the bot identity isn't resolved
-    // until the WebSocket handshake completes and the SDK fetches it.
-    this.botOpenId = this.channel.getBotIdentity().openId;
+    // messages. The adapter resolves bot identity during connect().
+    this.botOpenId = this.channel.getBotId();
     log.info('connected to Feishu');
   }
 
@@ -263,8 +310,8 @@ export class AgentRuntime {
     }
   }
 
-  /** Handle an incoming normalized message from Feishu. */
-  async handleMessage(msg: NormalizedMessage): Promise<void> {
+  /** Handle an incoming normalized message. */
+  async handleMessage(msg: InboundMessage): Promise<void> {
     // Ignore self-sent messages — the scheduler or a prior turn may have sent a
     // message that arrives back through the WebSocket. Matching only our own
     // open_id (not all bots) so cross-bot @-mentions still work.
@@ -291,18 +338,18 @@ export class AgentRuntime {
   /** Run one full agent turn: context build → tool loop → reply → persist.
    *  Serialized per-chat by handleMessage, so two messages in the same chat
    *  never interleave their load→LLM→save cycles. */
-  private async handleTurn(msg: NormalizedMessage): Promise<void> {
+  private async handleTurn(msg: InboundMessage): Promise<void> {
     const log = createLogger(this.logTag);
     const startTime = Date.now();
     const chatId = msg.chatId;
     const chatType = msg.chatType;
 
-    // Show a "Typing" reaction while we process, remove when done.
-    let reactionId = '';
+    // Show a typing indicator while we process, clear when done.
+    let typingHandle: TypingHandle | null = null;
     this.channel
-      .addReaction(msg.messageId, 'Typing')
-      .then((rid) => {
-        reactionId = rid;
+      .beginTyping(chatId, msg.messageId)
+      .then((h) => {
+        typingHandle = h;
       })
       .catch(() => {});
 
@@ -330,24 +377,32 @@ export class AgentRuntime {
       const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt, { memorySection });
       const sessionHistory = await this.sessionMgr.load(chatId, chatType);
 
-      // Download any images the user attached. Best-effort: returns null when
-      // there are none or every download failed — never breaks the turn.
-      prepared = await downloadAndPrepareImages(this.channel, msg);
+      // Image + quote ingest are Lark-specific (resource descriptors +
+      // fetchMessage). Gated by platform — WeChat (T8) handles media via its
+      // own adapter path. Phase A only runs the Lark branch.
+      if (this.channel instanceof LarkChannelAdapter) {
+        const lark = this.channel.raw;
+        const larkMsg = (msg.raw ?? undefined) as NormalizedMessage | undefined;
 
-      // Resolve the message this reply quotes (引用消息), if any. Best-effort
-      // like image ingest — a missing/forbidden quote degrades to the plain
-      // reply text. Without this the agent can't see what "这个" / "上面那条"
-      // refers to, because Feishu reply events carry only the new reply text.
-      const quoted = await resolveQuotedContent(this.channel, msg);
-      userText = withQuotedMessage(quoted, msg.content);
+        // Download any images the user attached. Best-effort: returns null
+        // when there are none or every download failed — never breaks turn.
+        if (larkMsg) prepared = await downloadAndPrepareImages(lark, larkMsg);
 
-      // If the quoted message carries images, download them too and merge into
-      // `prepared` so the agent can read media it's being asked about ("这张
-      // 图里是啥"). Shares one MAX_IMAGES budget with the current message's
-      // images (current-first). Best-effort, never breaks the turn.
-      if (quoted) {
-        const quotedImgs = await downloadQuotedImages(this.channel, quoted);
-        prepared = mergePrepared(prepared, quotedImgs);
+        // Resolve the message this reply quotes (引用消息), if any. Best-effort
+        // like image ingest — a missing/forbidden quote degrades to the plain
+        // reply text. Without this the agent can't see what "这个" / "上面那条"
+        // refers to, because Feishu reply events carry only the new reply text.
+        const quoted = larkMsg ? await resolveQuotedContent(lark, larkMsg) : null;
+        userText = withQuotedMessage(quoted, msg.content);
+
+        // If the quoted message carries images, download them too and merge
+        // into `prepared` so the agent can read media it's being asked about
+        // ("这张图里是啥"). Shares one MAX_IMAGES budget with the current
+        // message's images (current-first). Best-effort, never breaks turn.
+        if (quoted) {
+          const quotedImgs = await downloadQuotedImages(lark, quoted);
+          prepared = mergePrepared(prepared, quotedImgs);
+        }
       }
 
       // `messages` is the persisted history (system prompt is NOT included).
@@ -357,8 +412,9 @@ export class AgentRuntime {
       const userMessage = buildImageUserMessage(userText, prepared, { withVision: true });
       const messages: Message[] = [...sessionHistory, userMessage];
 
-      // Get enabled tools
-      const tools = getTools();
+      // Get enabled tools. lark-cli tools require a Feishu operational identity
+      // (own for lark agents, borrowed for wechat agents linked to one).
+      const tools = getTools(Boolean(this.feishuAppId));
 
       // Progress-aware agent loop: 6 signals replace the old
       // hardcoded for (round < maxToolCallRounds).
@@ -385,14 +441,14 @@ export class AgentRuntime {
           policy: resolveLoopPolicy(this.llmRow),
           onInterim: async (content) => {
             try {
-              await this.channel.send(chatId, { markdown: content });
+              await this.channel.sendText(chatId, content);
             } catch {
               // Interim delivery failures must not abort the turn
             }
           },
           toolCtx: {
-            profile: this.agentRow.larkCliProfile,
-            appId: this.agentRow.appId,
+            profile: this.feishuProfile,
+            appId: this.feishuAppId,
             asUser: this.hasUserAuth,
             userOnly: false, // executeTool resolves this internally from isUserRequired
             agentId: this.agentId,
@@ -488,8 +544,8 @@ export class AgentRuntime {
     } catch (err: any) {
       const durationMs = Date.now() - startTime;
       log.error(`handle message error: ${err?.message ?? err}`);
-      // Clean up the reaction on error path too
-      if (reactionId) this.channel.removeReaction(msg.messageId, reactionId).catch(() => {});
+      // Clear the typing indicator on error path too
+      if (typingHandle) this.channel.endTyping(typingHandle).catch(() => {});
       // Don't leave the user in silence — the error is logged + recorded, but
       // without an explicit reply the chat just sees the Typing reaction vanish.
       // Best-effort: streamReply degrades to a plain send on failure and never
@@ -513,8 +569,8 @@ export class AgentRuntime {
       await cleanupTempPaths(prepared.tempPaths).catch(() => {});
     }
 
-    // Remove the typing reaction when we're done
-    if (reactionId) this.channel.removeReaction(msg.messageId, reactionId).catch(() => {});
+    // Clear the typing indicator when we're done
+    if (typingHandle) this.channel.endTyping(typingHandle).catch(() => {});
   }
 
   /** Deliver an already-generated reply with a local typewriter cadence,
@@ -534,26 +590,29 @@ export class AgentRuntime {
     const replyLog = createLogger(this.logTag);
     const content = text.trim() || fallback;
     try {
-      await this.channel.stream(
-        chatId,
-        {
-          markdown: async (c) => {
-            await streamTextInChunks(content, (piece) => c.append(piece), sleep, {
-              maxChars: STREAM_CHUNK_MAX_CHARS,
-              delayMs: STREAM_CHUNK_DELAY_MS
-            });
-          }
-        },
-        { replyTo }
-      );
+      if (this.channel.capabilities.streaming && this.channel instanceof LarkChannelAdapter) {
+        await this.channel.raw.stream(
+          chatId,
+          {
+            markdown: async (c) => {
+              await streamTextInChunks(content, (piece) => c.append(piece), sleep, {
+                maxChars: STREAM_CHUNK_MAX_CHARS,
+                delayMs: STREAM_CHUNK_DELAY_MS
+              });
+            }
+          },
+          { replyTo }
+        );
+      } else {
+        // No streaming capability (WeChat): deliver the whole reply at once.
+        await this.channel.sendText(chatId, content);
+      }
     } catch (streamErr: any) {
-      replyLog.error(
-        `stream reply failed, falling back to send: ${streamErr?.message ?? streamErr}`
-      );
+      replyLog.error(`reply failed, falling back to sendText: ${streamErr?.message ?? streamErr}`);
       try {
-        await this.channel.send(chatId, { markdown: content });
+        await this.channel.sendText(chatId, content);
       } catch (sendErr: any) {
-        replyLog.error(`stream reply fallback send also failed: ${sendErr?.message ?? sendErr}`);
+        replyLog.error(`reply fallback sendText also failed: ${sendErr?.message ?? sendErr}`);
       }
     }
   }
@@ -565,7 +624,7 @@ export class AgentRuntime {
   async sendToChat(chatId: string, content: string): Promise<void> {
     const log = createLogger(this.logTag);
     try {
-      const result = await this.channel.send(chatId, { markdown: content });
+      const result = await this.channel.sendText(chatId, content);
       log.info(`sent to ${chatId}: ${result.messageId}`);
     } catch (err: any) {
       log.error(`sendToChat error: ${err?.message ?? err}`);
@@ -610,6 +669,7 @@ export class AgentRuntime {
     this.agentRow = row;
     this.llmRow = llmRow;
     this.currentConfigVersion = row.configVersion;
+    await this.resolveFeishuSource();
 
     log.info(`config hot-reloaded (version ${row.configVersion})`);
   }
@@ -626,7 +686,7 @@ export class AgentRuntime {
         .from(agentSchema.agentUserAuth)
         .where(
           and(
-            eq(agentSchema.agentUserAuth.agentId, this.agentId),
+            eq(agentSchema.agentUserAuth.agentId, this.feishuAgentId),
             inArray(agentSchema.agentUserAuth.status, ['authorized', 'incremental_awaiting'])
           )
         )
@@ -644,5 +704,42 @@ export class AgentRuntime {
       log.warn(`failed to check user auth status: ${err?.message ?? err}`);
       this.hasUserAuth = false;
     }
+  }
+
+  /** Whether this agent has what it needs to connect. Lark: always true
+   *  (appId/secret in DB). WeChat: requires stored SDK credentials. */
+  async isProvisioned(): Promise<boolean> {
+    if (this.channel instanceof WeChatChannel) return this.channel.hasCredentials();
+    return true;
+  }
+
+  /** Latest needsReauth flag (agentRow is reloaded by the manager's poll). */
+  isWechatNeedsReauth(): boolean {
+    return Boolean((this.agentRow.platformConfig as { needsReauth?: boolean } | null)?.needsReauth);
+  }
+
+  /** WeChat session expired (-14): mark needsReauth, log, and disconnect so a
+   *  fresh scan can restart the agent. The manager's poll removes it from the
+   *  runtime pool once it sees needsReauth=true. */
+  private async onWechatSessionExpired(): Promise<void> {
+    const log = createLogger(this.logTag);
+    log.error('wechat session expired (-14) — marking needsReauth, re-scan required');
+    try {
+      const cur = (this.agentRow.platformConfig as Record<string, unknown> | null) ?? {};
+      await workerDb
+        .update(agentSchema.agent)
+        .set({ platformConfig: { ...cur, needsReauth: true } })
+        .where(eq(agentSchema.agent.id, this.agentId));
+      await writeLog({
+        agentId: this.agentId,
+        ownerId: this.agentRow.ownerId,
+        type: 'message',
+        status: 'error',
+        error: 'wechat session expired (-14) — re-scan required'
+      });
+    } catch (err: any) {
+      log.error(`failed to record wechat session expiry: ${err?.message ?? err}`);
+    }
+    await this.stop().catch(() => {});
   }
 }

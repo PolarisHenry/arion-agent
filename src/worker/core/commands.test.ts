@@ -34,29 +34,29 @@ describe('executeClearCommand', () => {
       }
     };
     const channel = {
-      send: async () => {
-        calls.push('send');
+      sendText: async () => {
+        calls.push('sendText');
         return { messageId: 'm1' };
       }
     };
 
     await executeClearCommand(sessionMgr as any, channel as any, 'chat-1');
 
-    expect(calls).toEqual(['clear', 'send']);
+    expect(calls).toEqual(['clear', 'sendText']);
   });
 
-  it('sends the confirmation markdown text', async () => {
-    const sent: { markdown: string }[] = [];
+  it('sends the confirmation text via sendText', async () => {
+    const sent: string[] = [];
     const channel = {
-      send: async (_chatId: string, body: { markdown: string }) => {
-        sent.push(body);
+      sendText: async (_chatId: string, text: string) => {
+        sent.push(text);
         return { messageId: 'm1' };
       }
     };
 
     await executeClearCommand({ clear: async () => {} } as any, channel as any, 'chat-1');
 
-    expect(sent).toEqual([{ markdown: '🧹 上下文已清空，我们重新开始吧。' }]);
+    expect(sent).toEqual(['🧹 上下文已清空，我们重新开始吧。']);
   });
 
   it('does not throw when the confirmation send fails (clear already happened)', async () => {
@@ -67,7 +67,7 @@ describe('executeClearCommand', () => {
       }
     };
     const channel = {
-      send: async () => {
+      sendText: async () => {
         throw new Error('network down');
       }
     };

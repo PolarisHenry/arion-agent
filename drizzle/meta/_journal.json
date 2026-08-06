@@ -50,6 +50,20 @@
       "when": 1785234985314,
       "tag": "0006_brave_pixie",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785983574666,
+      "tag": "0007_fixed_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785986910087,
+      "tag": "0008_messy_psynapse",
+      "breakpoints": true
     }
   ]
 }

@@ -125,3 +125,50 @@ export async function fetchAppInfo(appId: string, appSecret: string): Promise<Ap
   await assertOk(res);
   return res.json();
 }
+
+// ============================================================
+// WeChat (iLink) QR login — scan to create / re-auth a wechat agent
+// ============================================================
+
+export type WechatLoginStatus = {
+  status: 'pending' | 'qr' | 'scanned' | 'confirmed' | 'expired' | 'error' | 'unknown';
+  url?: string;
+  agentId?: string;
+  error?: string;
+};
+
+export async function startWechatLogin(payload: {
+  name: string;
+  systemPrompt: string;
+  llmModelId: string;
+  description?: string;
+  avatar?: string;
+  linkedAgentId?: string;
+}): Promise<{ sessionId: string }> {
+  const res = await fetch(`${apiBaseUrl()}/api/agents/wechat-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  await assertOk(res);
+  return res.json();
+}
+
+/** Re-scan (re-auth) an existing wechat agent after a -14 session expiry. */
+export async function startWechatReauth(agentId: string): Promise<{ sessionId: string }> {
+  const res = await fetch(`${apiBaseUrl()}/api/agents/wechat-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId })
+  });
+  await assertOk(res);
+  return res.json();
+}
+
+export async function pollWechatLogin(sessionId: string): Promise<WechatLoginStatus> {
+  const res = await fetch(
+    `${apiBaseUrl()}/api/agents/wechat-login?${new URLSearchParams({ id: sessionId }).toString()}`
+  );
+  await assertOk(res);
+  return res.json();
+}

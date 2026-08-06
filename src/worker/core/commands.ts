@@ -21,12 +21,12 @@ export function parseCommand(content: string): 'clear' | null {
  *  (matches the defensive send pattern used throughout agent-runtime.ts). */
 export async function executeClearCommand(
   sessionMgr: { clear: (chatId: string) => Promise<void> },
-  channel: { send: (chatId: string, body: { markdown: string }) => Promise<unknown> },
+  channel: { sendText: (chatId: string, text: string) => Promise<unknown> },
   chatId: string
 ): Promise<void> {
   await sessionMgr.clear(chatId);
   try {
-    await channel.send(chatId, { markdown: CLEAR_CONFIRMATION_TEXT });
+    await channel.sendText(chatId, CLEAR_CONFIRMATION_TEXT);
   } catch (err: any) {
     log.warn(`clear confirmation send failed for ${chatId}: ${err?.message ?? err}`);
   }
