@@ -265,6 +265,9 @@ export function LlmModelFormSheet({ model, open, onOpenChange }: LlmModelFormShe
                             value={m}
                             onSelect={() => {
                               setModelName(m);
+                              // Auto-fill the name field with the picked model id
+                              // when the user hasn't named this config yet.
+                              if (!name.trim()) setName(m);
                               setModelOpen(false);
                             }}
                           >
