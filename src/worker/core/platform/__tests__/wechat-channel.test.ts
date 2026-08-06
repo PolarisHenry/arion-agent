@@ -95,4 +95,37 @@ describe('WeChatChannel', () => {
     registered!(fakeIncoming({ text: 'hello' }));
     expect(received[0]).toMatchObject({ content: 'hello', chatId: 'ou_x@im.wechat' });
   });
+
+  it('connect() resolves once the poller starts, without awaiting the infinite poll loop', async () => {
+    // Regression: the SDK's start() resolves only when the poll loop exits.
+    // Awaiting it blocked connect() forever → the runtime never registered →
+    // reminders failed with "agent not running" while inbound chat worked.
+    let pollStartCb: (() => void) | undefined;
+    const bot = fakeBot({
+      login: vi.fn().mockResolvedValue({ accountId: 'b@im.bot' }),
+      once: vi.fn((ev: string, cb: () => void) => {
+        if (ev === 'poll:start') pollStartCb = cb;
+      }) as unknown as WeChatBot['once'],
+      // start() fires the captured 'poll:start' listener (setup done), then
+      // returns a promise that NEVER resolves — mimicking the SDK's poll loop.
+      start: vi.fn(() => {
+        pollStartCb?.();
+        return new Promise<void>(() => {});
+      })
+    });
+    const ch = new WeChatChannel({ agentId: 'a1', name: 'b', bot });
+    await expect(ch.connect()).resolves.toBeUndefined();
+    expect(bot.login).toHaveBeenCalled();
+    expect(bot.start).toHaveBeenCalled();
+  });
+
+  it('connect() rejects if start() fails before polling begins', async () => {
+    const bot = fakeBot({
+      login: vi.fn().mockResolvedValue({ accountId: 'b@im.bot' }),
+      once: vi.fn(),
+      start: vi.fn().mockRejectedValue(new Error('setup boom'))
+    });
+    const ch = new WeChatChannel({ agentId: 'a1', name: 'b', bot });
+    await expect(ch.connect()).rejects.toThrow('setup boom');
+  });
 });

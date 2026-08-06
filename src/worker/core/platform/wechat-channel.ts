@@ -83,7 +83,30 @@ export class WeChatChannel implements PlatformChannel {
     // provisioned via the dashboard. Worker must not reach here for an
     // unprovisioned agent — see agent-manager guard (T11).
     await this.bot.login();
-    await this.bot.start();
+    // The SDK's start() resolves only when the poll loop EXITS — it's designed
+    // as a program's main loop (run forever). Awaiting it blocks connect()
+    // forever, so AgentRuntime.start() never returned, the runtime was never
+    // registered in the pool, and the scheduler's sendForAgent always failed
+    // with "agent not running" (even though inbound chat worked, since the
+    // poller runs independently). Kick the loop off in the background and
+    // resolve connect() once setup is done — the SDK emits 'poll:start' after
+    // context/cursor load, right before the loop begins.
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const onPollStart = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      this.bot.once('poll:start', onPollStart);
+      this.bot.start().catch((err: unknown) => {
+        if (!settled) {
+          settled = true;
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+    });
   }
   async disconnect(): Promise<void> {
     this.bot.stop();
