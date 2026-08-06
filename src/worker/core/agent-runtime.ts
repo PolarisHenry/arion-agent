@@ -374,7 +374,10 @@ export class AgentRuntime {
         // Memory must never break a turn — proceed without it.
         log.warn(`memory load failed: ${memErr?.message ?? memErr}`);
       }
-      const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt, { memorySection });
+      const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt, {
+        memorySection,
+        feishuLinked: Boolean(this.feishuAppId)
+      });
       const sessionHistory = await this.sessionMgr.load(chatId, chatType);
 
       // Image + quote ingest are Lark-specific (resource descriptors +

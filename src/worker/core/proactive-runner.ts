@@ -87,6 +87,20 @@ export async function runProactiveTurn(args: {
     .limit(1);
   const asUser = authRow?.status === 'authorized' || authRow?.status === 'incremental_awaiting';
 
+  // Resolve whether this agent has a Feishu operational identity. For WeChat
+  // agents it's only true when linked to a Feishu agent (linkedAgentId pointing
+  // at a live Lark agent whose appId is set). Own platform='wechat' with no
+  // appId → false. Mirrors AgentRuntime.resolveFeishuSource().
+  let feishuLinked = agentRow.appId ? true : false;
+  if (agentRow.platform === 'wechat' && agentRow.linkedAgentId) {
+    const [linked] = await workerDb
+      .select()
+      .from(agentSchema.agent)
+      .where(eq(agentSchema.agent.id, agentRow.linkedAgentId))
+      .limit(1);
+    feishuLinked = Boolean(linked && (linked.platform ?? 'lark') === 'lark' && linked.appId);
+  }
+
   // Build the SAME full system prompt the message path uses (lark guide +
   // time + tool discipline + memory) + an optional triggered-run block telling the
   // model its reply is auto-delivered as bot — so it just outputs content
@@ -97,7 +111,7 @@ export async function runProactiveTurn(args: {
   } catch {
     // best effort — triggered run proceeds without memory
   }
-  const promptOpts: BuildSystemPromptOptions = { memorySection };
+  const promptOpts: BuildSystemPromptOptions = { memorySection, feishuLinked };
   if (args.triggeredRun) promptOpts.triggeredRun = args.triggeredRun;
   const systemPrompt = await buildSystemPrompt(agentRow.systemPrompt, promptOpts);
 
@@ -116,7 +130,7 @@ export async function runProactiveTurn(args: {
   const loopResult = await runAgentLoop({
     chat: (msgs, tlz) => chat(llmConfig, msgs, tlz),
     executeTool,
-    tools: getTools(),
+    tools: getTools(feishuLinked),
     systemPrompt,
     initialMessages: messages,
     policy: resolveLoopPolicy(llmRow),

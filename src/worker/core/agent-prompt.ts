@@ -95,6 +95,10 @@ export interface BuildSystemPromptOptions {
    *  Empty/undefined → omitted. Caller fetches + renders so this fn stays
    *  DB-free and testable. */
   memorySection?: string;
+  /** When false, skip the lark-cli skill guide. Defaults to true so callers
+   *  that don't pass it keep the old behaviour. WeChat agents with no Feishu
+   *  link pass false — they can't use lark-cli tools, so the guide is noise. */
+  feishuLinked?: boolean;
 }
 
 /** Assemble the full system prompt shared by the message path and the scheduler.
@@ -105,7 +109,8 @@ export async function buildSystemPrompt(
   opts?: BuildSystemPromptOptions,
   exec?: ExecFn
 ): Promise<string> {
-  const larkGuide = await buildLarkGuide(exec);
+  const feishuLinked = opts?.feishuLinked !== false; // default true
+  const larkGuide = feishuLinked ? await buildLarkGuide(exec) : '';
   let prompt = systemPrompt + larkGuide + buildCurrentTimeContext() + buildToolDiscipline();
   if (opts?.memorySection) {
     prompt += opts.memorySection;

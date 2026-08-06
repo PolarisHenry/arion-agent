@@ -26,7 +26,9 @@ const agentRow = {
   appId: 'app',
   larkCliProfile: 'prof',
   systemPrompt: 'sys',
-  status: 'active'
+  status: 'active',
+  platform: 'lark',
+  linkedAgentId: null
 };
 const llmRow = {
   id: 'm1',

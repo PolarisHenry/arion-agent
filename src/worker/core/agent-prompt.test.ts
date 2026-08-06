@@ -29,6 +29,24 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('以 bot 身份代发');
   });
 
+  it('skips lark guide when feishuLinked is false', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', { feishuLinked: false }, fakeExec as any);
+    expect(prompt).not.toContain('Lark 可用 skill');
+    expect(prompt).not.toContain('Lark CLI 使用准则');
+    expect(prompt).toContain('当前时间');
+    expect(prompt).toContain('工具使用与任务完成纪律');
+  });
+
+  it('includes lark guide when feishuLinked is true explicitly', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', { feishuLinked: true }, fakeExec as any);
+    expect(prompt).toContain('Lark 可用 skill');
+    expect(prompt).toContain('Lark CLI 使用准则');
+  });
+
   it('appends the triggered-run context when triggeredRun is set', async () => {
     vi.resetModules();
     const { buildSystemPrompt } = await import('./agent-prompt');

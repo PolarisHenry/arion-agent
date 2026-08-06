@@ -14,7 +14,9 @@ vi.mock('../worker-db', () => ({
               appId: 'app',
               larkCliProfile: 'prof',
               systemPrompt: 'sys',
-              status: 'active'
+              status: 'active',
+              platform: 'lark',
+              linkedAgentId: null
             }
           ])
         })
