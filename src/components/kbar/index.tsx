@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import RenderResults from './render-result';
 import useThemeSwitching from './use-theme-switching';
+import useQuickActions from './use-quick-actions';
 import { useFilteredNavGroups } from '@/hooks/use-nav';
 import { useTranslation } from '@/lib/i18n';
 
@@ -34,6 +35,7 @@ const KBarComponent = ({ children }: { children: React.ReactNode }) => {
   const filteredGroups = useFilteredNavGroups(navGroups);
   const { t } = useTranslation();
   useThemeSwitching();
+  useQuickActions();
 
   // These actions are for the navigation
   const actions = useMemo(() => {
