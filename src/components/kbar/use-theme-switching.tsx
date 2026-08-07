@@ -19,6 +19,11 @@ const useThemeSwitching = () => {
     setActiveTheme(THEMES[nextIndex].value);
   };
 
+  // Two distinct concepts → two distinct labels:
+  //  - cycleTheme      → 配色 (color scheme): "Theme" / 主题, shortcut tt
+  //  - toggleDarkLight → 深浅色 (light/dark): "Toggle dark mode" / 切换深色模式,
+  //    shortcut dd. Dashboard's old dd shortcut was removed from nav-config to
+  //    avoid a collision, so dd uniquely toggles light/dark.
   const themeActions = [
     {
       id: 'cycleTheme',
@@ -29,22 +34,10 @@ const useThemeSwitching = () => {
     },
     {
       id: 'toggleDarkLight',
-      name: t('Theme'),
+      name: t('Toggle dark mode'),
       shortcut: ['d', 'd'],
-      section: t('Theme'),
+      section: t('Appearance'),
       perform: toggleDarkLight
-    },
-    {
-      id: 'setLightTheme',
-      name: t('Theme'),
-      section: t('Theme'),
-      perform: () => setTheme('light')
-    },
-    {
-      id: 'setDarkTheme',
-      name: t('Theme'),
-      section: t('Theme'),
-      perform: () => setTheme('dark')
     }
   ];
 

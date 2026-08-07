@@ -49,10 +49,10 @@ export function ThemeModeToggle() {
         }
       >
         <Icons.brightness />
-        <span className='sr-only'>{t('Toggle theme')}</span>
+        <span className='sr-only'>{t('Toggle dark mode')}</span>
       </TooltipTrigger>
       <TooltipContent>
-        {t('Toggle theme')} <Kbd>D D</Kbd>
+        {t('Toggle dark mode')} <Kbd>D D</Kbd>
       </TooltipContent>
     </Tooltip>
   );

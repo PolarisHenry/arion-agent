@@ -74,8 +74,10 @@ const KBarComponent = ({ children }: { children: React.ReactNode }) => {
         <KBarPositioner className='bg-background/80 fixed inset-0 z-99999 p-0! backdrop-blur-sm'>
           <KBarAnimator className='bg-card text-card-foreground relative mt-64! w-full max-w-[600px] -translate-y-12! overflow-hidden rounded-lg border shadow-lg'>
             <div className='bg-card border-border sticky top-0 z-10 border-b'>
+              {/* kbar reads `defaultPlaceholder`, NOT `placeholder` — passing the
+                  latter is silently ignored (the computed placeholder overrides it). */}
               <KBarSearch
-                placeholder={t('Type a command or search…')}
+                defaultPlaceholder={t('Type a command or search…')}
                 className='bg-card w-full border-none px-6 py-4 text-lg outline-hidden focus:ring-0 focus:ring-offset-0 focus:outline-hidden'
               />
             </div>
