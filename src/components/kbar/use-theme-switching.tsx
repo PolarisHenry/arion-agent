@@ -5,12 +5,15 @@ import { THEMES } from '@/components/themes/theme.config';
 import { useTranslation } from '@/lib/i18n';
 
 const useThemeSwitching = () => {
-  const { theme, setTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const { activeTheme, setActiveTheme } = useThemeConfig();
   const { t } = useTranslation();
 
+  // Label + direction follow the actually-rendered theme (resolvedTheme), so the
+  // action reads "Switch to dark mode" while you're in light, and vice versa.
+  const isDark = resolvedTheme === 'dark';
   const toggleDarkLight = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
+    setTheme(isDark ? 'light' : 'dark');
   };
 
   const cycleTheme = () => {
@@ -21,7 +24,8 @@ const useThemeSwitching = () => {
 
   // Two distinct concepts → two distinct labels:
   //  - cycleTheme      → 配色 (color scheme): "Theme" / 主题, shortcut tt
-  //  - toggleDarkLight → 深浅色 (light/dark): "Toggle dark mode" / 切换深色模式,
+  //  - toggleDarkLight → 深浅色 (light/dark): name flips with resolvedTheme
+  //    ("Switch to dark mode" in light, "Switch to light mode" in dark),
   //    shortcut dd. Dashboard's old dd shortcut was removed from nav-config to
   //    avoid a collision, so dd uniquely toggles light/dark.
   const themeActions = [
@@ -34,14 +38,14 @@ const useThemeSwitching = () => {
     },
     {
       id: 'toggleDarkLight',
-      name: t('Toggle dark mode'),
+      name: isDark ? t('Switch to light mode') : t('Switch to dark mode'),
       shortcut: ['d', 'd'],
       section: t('Appearance'),
       perform: toggleDarkLight
     }
   ];
 
-  useRegisterActions(themeActions, [theme, activeTheme, t]);
+  useRegisterActions(themeActions, [resolvedTheme, activeTheme, t]);
 };
 
 export default useThemeSwitching;

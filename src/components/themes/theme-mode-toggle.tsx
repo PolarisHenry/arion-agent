@@ -12,6 +12,8 @@ import { useTranslation } from '@/lib/i18n';
 export function ThemeModeToggle() {
   const { setTheme, resolvedTheme } = useTheme();
   const { t } = useTranslation();
+  const toggleLabel =
+    resolvedTheme === 'dark' ? t('Switch to light mode') : t('Switch to dark mode');
 
   const handleThemeToggle = React.useCallback(
     (e?: React.MouseEvent) => {
@@ -49,10 +51,10 @@ export function ThemeModeToggle() {
         }
       >
         <Icons.brightness />
-        <span className='sr-only'>{t('Toggle dark mode')}</span>
+        <span className='sr-only'>{toggleLabel}</span>
       </TooltipTrigger>
       <TooltipContent>
-        {t('Toggle dark mode')} <Kbd>D D</Kbd>
+        {toggleLabel} <Kbd>D D</Kbd>
       </TooltipContent>
     </Tooltip>
   );
