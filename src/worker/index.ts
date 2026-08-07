@@ -18,6 +18,7 @@ import { enqueueRetry } from './core/retry-queue';
 import { replayPending } from './core/auth-replay';
 import { createLogger } from './core/logger';
 import { runMigrations } from '../lib/migrate';
+import { registerSkillSource, DbSkillSource } from './core/skill-source';
 
 const log = createLogger('worker');
 
@@ -32,6 +33,9 @@ async function main() {
     log.error(`database migration failed: ${err?.message ?? err}`);
     process.exit(1);
   }
+
+  // Register the agent-DB skill source (agent-own skills, read each turn).
+  registerSkillSource(new DbSkillSource());
 
   const agentMgr = new AgentManager();
   const scheduler = new Scheduler();

@@ -60,3 +60,7 @@ next-env.d.ts
 # Playwright MCP artifacts (screenshots / snapshots)
 .playwright-mcp/
 
+# Superpowers design/SDD artifacts (local only — never commit/push)
+.superpowers/
+docs/superpowers/
+

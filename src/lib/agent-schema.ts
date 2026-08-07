@@ -110,7 +110,8 @@ export const agentRelations = relations(agent, ({ one, many }) => ({
   }),
   userAuth: many(agentUserAuth),
   retryQueue: many(agentRetryQueue),
-  memory: many(agentMemory)
+  memory: many(agentMemory),
+  skills: many(agentSkill)
 }));
 
 // ============================================================
@@ -186,6 +187,46 @@ export const agentMemory = pgTable(
     index('agent_memory_agentId_idx').on(table.agentId),
     index('agent_memory_ownerId_idx').on(table.ownerId),
     uniqueIndex('agent_memory_agentId_key_uidx').on(table.agentId, table.key)
+  ]
+);
+
+// ============================================================
+// Agent Skill — a reusable procedure doc an agent can discover
+// (system-prompt index) and load on demand (skill tool), or
+// precipitate from conversation. v1 scope is always 'agent'
+// (private to the creating agent); 'tenant'/'platform' reserved.
+// UNIQUE(agent_id, name) makes create an upsert by name.
+// ============================================================
+
+export const agentSkill = pgTable(
+  'agent_skill',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id').notNull(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agent.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    body: text('body').notNull(),
+    /** v1 always 'agent' (private to this agent). Reserved: 'tenant' | 'platform'. */
+    scope: text('scope').notNull().default('agent'),
+    /** 'precipitated' = the agent saved it from a conversation; 'manual' = dashboard-authored. */
+    provenance: text('provenance').notNull().default('manual'),
+    sourceChatId: text('source_chat_id'),
+    enabled: boolean('enabled').default(true).notNull(),
+    /** Optional platform gate (array of platform ids). Null/empty = all platforms. */
+    platforms: jsonb('platforms'),
+    createdAt: timestamp('created_at', { mode: 'date', precision: 3 }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', precision: 3 })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull()
+  },
+  (table) => [
+    index('agent_skill_agentId_idx').on(table.agentId),
+    index('agent_skill_ownerId_idx').on(table.ownerId),
+    uniqueIndex('agent_skill_agentId_name_uidx').on(table.agentId, table.name)
   ]
 );
 
@@ -389,6 +430,13 @@ export const agentRetryQueueRelations = relations(agentRetryQueue, ({ one }) => 
 export const agentMemoryRelations = relations(agentMemory, ({ one }) => ({
   agent: one(agent, {
     fields: [agentMemory.agentId],
+    references: [agent.id]
+  })
+}));
+
+export const agentSkillRelations = relations(agentSkill, ({ one }) => ({
+  agent: one(agent, {
+    fields: [agentSkill.agentId],
     references: [agent.id]
   })
 }));

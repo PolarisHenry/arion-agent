@@ -21,6 +21,7 @@ import type { LlmTool } from './llm';
 import { readSkillTool, schemaTool, runLarkCliTool } from './lark-tools';
 import { scheduleTool } from './schedule-tool';
 import { memoryTool } from './memory-tool';
+import { skillTool } from './skill-tool';
 
 const log = createLogger('tools');
 
@@ -85,7 +86,14 @@ export type ToolContext = {
 
 // Order preserved from the former TOOL_DEFS (lark trio → schedule → memory).
 // Tool order can nudge the model's selection, so keep it stable.
-const ALL: AgentTool[] = [readSkillTool, schemaTool, runLarkCliTool, scheduleTool, memoryTool];
+const ALL: AgentTool[] = [
+  readSkillTool,
+  schemaTool,
+  runLarkCliTool,
+  scheduleTool,
+  memoryTool,
+  skillTool
+];
 const byName = new Map(ALL.map((t) => [t.schema.function.name, t]));
 
 /** The LLM-visible tool set. feishuLinked=true → all tools (agent can drive

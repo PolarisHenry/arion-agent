@@ -7,6 +7,10 @@ import { agentKeys } from '../../api/queries';
 import { getQueryClient } from '@/lib/query-client';
 import { AgentLogPanel, AgentLogPanelSkeleton } from './agent-log-panel';
 import { AgentMemoryPanel, AgentMemoryPanelSkeleton } from './agent-memory-panel';
+import {
+  AgentSkillPanel,
+  AgentSkillPanelSkeleton
+} from '@/features/agent-skills/components/agent-skill-panel';
 import { useTranslation } from '@/lib/i18n';
 import { Suspense } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -120,6 +124,7 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
           <TabsTrigger value='overview'>{t('Dashboard')}</TabsTrigger>
           <TabsTrigger value='logs'>{t('Logs')}</TabsTrigger>
           <TabsTrigger value='memory'>{t('Memory')}</TabsTrigger>
+          <TabsTrigger value='skills'>{t('Skills')}</TabsTrigger>
         </TabsList>
         <TabsContent value='overview' className='pt-4'>
           <div className='space-y-3 text-sm'>
@@ -139,6 +144,11 @@ export function AgentDetailTabs({ agentId }: { agentId: string }) {
         <TabsContent value='memory' className='pt-4'>
           <Suspense fallback={<AgentMemoryPanelSkeleton />}>
             <AgentMemoryPanel agentId={agentId} />
+          </Suspense>
+        </TabsContent>
+        <TabsContent value='skills' className='pt-4'>
+          <Suspense fallback={<AgentSkillPanelSkeleton />}>
+            <AgentSkillPanel agentId={agentId} />
           </Suspense>
         </TabsContent>
       </Tabs>

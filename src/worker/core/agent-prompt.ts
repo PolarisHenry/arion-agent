@@ -65,6 +65,23 @@ function buildToolDiscipline(): string {
   ].join('\n');
 }
 
+// Skill usage rules — always present (create/load are always available to the
+// agent). Tells the model: arion skills use the `skill` tool, load on demand,
+// may proactively precipitate recurring flows (with consent), and must confirm
+// after precipitating. Platform builtins are load-only.
+function buildSkillRules(): string {
+  return [
+    '',
+    '',
+    '## 技能（skill 工具）使用准则',
+    '- 上面的「技能」段（如有）列出你当前可用的 skill。判断某次请求与某条相关时，先调 skill({action:"load", name:"…"}) 读正文，再按正文执行——别凭名字猜内容。',
+    '- arion 自有技能用 skill 工具；飞书域技能（lark- 开头）仍用 read_skill。两者别混。',
+    '- 完成一个非平凡、很可能复现的多步操作后，你可以主动问用户"要把这套流程存成技能吗？"——经用户同意后调 skill({action:"create", name, description, body}) 沉淀。description 写清"什么情况下该用它"（这是以后能否被正确唤起的关键），body 写步骤、不写敏感数据。克制提议，别频繁打扰。',
+    '- 用户主动让你"记住这个流程 / 存成技能"时，直接 create；沉淀后必须向用户确认（"✅ 已存为技能 X，以后说 Y 我就走这套"）。',
+    '- skill 的 create/update 只作用于你自己的私有技能；平台内置技能只能 load。删除 / 停用你自己做不了，请让用户去 dashboard 处理。'
+  ].join('\n');
+}
+
 // Appended ONLY to scheduler-triggered runs. The scheduler delivers the agent's
 // final reply to target_chat_id via its own bot channel, so the agent's job is
 // to SAY the content — not to send an IM, and never as the user (triggered runs
@@ -95,6 +112,10 @@ export interface BuildSystemPromptOptions {
    *  Empty/undefined → omitted. Caller fetches + renders so this fn stays
    *  DB-free and testable. */
   memorySection?: string;
+  /** Pre-rendered skill index section (from loadSkillIndex). Empty/undefined
+   *  → omitted. Caller fetches + renders so this fn stays DB-free, mirroring
+   *  memorySection. */
+  skillSection?: string;
   /** When false, skip the lark-cli skill guide. Defaults to true so callers
    *  that don't pass it keep the old behaviour. WeChat agents with no Feishu
    *  link pass false — they can't use lark-cli tools, so the guide is noise. */
@@ -111,7 +132,15 @@ export async function buildSystemPrompt(
 ): Promise<string> {
   const feishuLinked = opts?.feishuLinked !== false; // default true
   const larkGuide = feishuLinked ? await buildLarkGuide(exec) : '';
-  let prompt = systemPrompt + larkGuide + buildCurrentTimeContext() + buildToolDiscipline();
+  let prompt =
+    systemPrompt +
+    larkGuide +
+    buildCurrentTimeContext() +
+    buildToolDiscipline() +
+    buildSkillRules();
+  if (opts?.skillSection) {
+    prompt += opts.skillSection;
+  }
   if (opts?.memorySection) {
     prompt += opts.memorySection;
   }

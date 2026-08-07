@@ -15,6 +15,10 @@ vi.mock('./lark-executor', () => ({
   larkSchema: vi.fn(async () => 'schema')
 }));
 
+vi.mock('./skill-source', () => ({
+  findSkillForAgent: vi.fn(async () => undefined)
+}));
+
 import { getTools, executeTool } from './tools';
 import { larkCliRequiresUser } from './lark-tools';
 import { saveMemoryFact, getMemoryFact, listMemoryFacts, deleteMemoryFact } from './agent-memory';
@@ -32,25 +36,33 @@ beforeEach(() => {
 });
 
 describe('getTools', () => {
-  it('returns the 5 tools in stable order (lark trio → schedule → memory)', () => {
+  it('returns the 6 tools in stable order (lark trio → schedule → memory → skill)', () => {
     const names = getTools().map((t) => t.function.name);
-    expect(names).toEqual(['read_skill', 'schema', 'run_lark_cli', 'manage_schedule', 'memory']);
+    expect(names).toEqual([
+      'read_skill',
+      'schema',
+      'run_lark_cli',
+      'manage_schedule',
+      'memory',
+      'skill'
+    ]);
   });
 
-  it('returns the same 5 names regardless of order when sorted', () => {
+  it('returns the same 6 names regardless of order when sorted', () => {
     const names = getTools().map((t) => t.function.name);
     expect(names.sort()).toEqual([
       'manage_schedule',
       'memory',
       'read_skill',
       'run_lark_cli',
-      'schema'
+      'schema',
+      'skill'
     ]);
   });
 
-  it('feishuLinked=false drops the 3 lark-cli tools, keeps schedule + memory', () => {
+  it('feishuLinked=false drops the 3 lark-cli tools, keeps schedule + memory + skill', () => {
     const names = getTools(false).map((t) => t.function.name);
-    expect(names).toEqual(['manage_schedule', 'memory']);
+    expect(names).toEqual(['manage_schedule', 'memory', 'skill']);
   });
 });
 

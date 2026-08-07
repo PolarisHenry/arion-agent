@@ -45,6 +45,7 @@ export const PERMISSIONS = {
   AGENT_DELETE: 'agent:delete',
   AGENT_ENABLE: 'agent:enable',
   AGENT_TRIGGER_MANAGE: 'agent:trigger_manage',
+  AGENT_SKILL_MANAGE: 'agent:skill_manage',
   AGENT_LOG_READ: 'agent:log_read'
 } as const;
 
@@ -118,6 +119,7 @@ export const PERMISSION_TREE: readonly PermissionMenu[] = [
       PERMISSIONS.AGENT_DELETE,
       PERMISSIONS.AGENT_ENABLE,
       PERMISSIONS.AGENT_TRIGGER_MANAGE,
+      PERMISSIONS.AGENT_SKILL_MANAGE,
       PERMISSIONS.AGENT_LOG_READ
     ]
   }

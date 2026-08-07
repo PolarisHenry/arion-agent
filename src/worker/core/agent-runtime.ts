@@ -37,6 +37,7 @@ import { resolveQuotedContent, withQuotedMessage } from './quote';
 import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { loadMemoryFacts, renderMemorySection } from './agent-memory';
+import { loadSkillIndex } from './skill-source';
 import { parseCommand, executeClearCommand } from './commands';
 import { ChatSerializer } from './chat-serializer';
 import { SessionManager } from '../session/index';
@@ -374,8 +375,20 @@ export class AgentRuntime {
         // Memory must never break a turn — proceed without it.
         log.warn(`memory load failed: ${memErr?.message ?? memErr}`);
       }
+      let skillSection = '';
+      try {
+        skillSection = await loadSkillIndex(
+          this.agentId,
+          this.agentRow.ownerId,
+          this.agentRow.platform ?? 'lark'
+        );
+      } catch (skillErr: any) {
+        // Skills must never break a turn — proceed without the index.
+        log.warn(`skill index load failed: ${skillErr?.message ?? skillErr}`);
+      }
       const systemPrompt = await buildSystemPrompt(this.agentRow.systemPrompt, {
         memorySection,
+        skillSection,
         feishuLinked: Boolean(this.feishuAppId)
       });
       const sessionHistory = await this.sessionMgr.load(chatId, chatType);

@@ -742,6 +742,7 @@ export const translations = {
     'agent:delete': 'Delete',
     'agent:enable': 'Pause/Activate',
     'agent:trigger_manage': 'Manage Triggers',
+    'agent:skill_manage': 'Manage Skills',
     'agent:log_read': 'View Logs',
 
     // LLM Models page
@@ -965,6 +966,29 @@ export const translations = {
     'Authorized scope is broader than required.': 'Authorized scope is broader than required.',
     'Feishu scopes only grow — to narrow, revoke and re-authorize.':
       'Feishu scopes only grow — to narrow, revoke and re-authorize.',
+
+    // 技能（Skills）
+    Skills: 'Skills',
+    Skill: 'Skill',
+    'Create Skill': 'Create Skill',
+    'Edit Skill': 'Edit Skill',
+    'Update Skill': 'Update Skill',
+    'Delete Skill': 'Delete Skill',
+    'Delete this skill?': 'Delete this skill?',
+    'Skill Name': 'Skill Name',
+    'Skill Body': 'Skill Body',
+    'Trigger cue — what makes the agent reach for this skill':
+      'Trigger cue — what makes the agent reach for this skill',
+    Preview: 'Preview',
+    Source: 'Source',
+    Manual: 'Manual',
+    Precipitated: 'Precipitated',
+    'No skills yet': 'No skills yet',
+    'Create your first skill': 'Create your first skill',
+    'Skill created successfully': 'Skill created successfully',
+    'Skill updated successfully': 'Skill updated successfully',
+    'Skill deleted successfully': 'Skill deleted successfully',
+    'Skill management': 'Skill management',
 
     // Conversational scheduling (standalone Scheduled Tasks menu)
     Agent: 'Agent',
@@ -1686,6 +1710,7 @@ export const translations = {
     'agent:delete': '删除',
     'agent:enable': '启用/停用',
     'agent:trigger_manage': '管理触发器',
+    'agent:skill_manage': '管理技能',
     'agent:log_read': '查看日志',
 
     // LLM Models page
@@ -1898,6 +1923,28 @@ export const translations = {
     'Authorized scope is broader than required.': '已授权范围大于当前所需。',
     'Feishu scopes only grow — to narrow, revoke and re-authorize.':
       '飞书权限只增不减——要收窄需先取消授权再重新授权。',
+
+    // 技能（Skills）
+    Skills: '技能',
+    Skill: '技能',
+    'Create Skill': '新建技能',
+    'Edit Skill': '编辑技能',
+    'Update Skill': '更新技能',
+    'Delete Skill': '删除技能',
+    'Delete this skill?': '确定删除该技能？',
+    'Skill Name': '技能名称',
+    'Skill Body': '技能正文',
+    'Trigger cue — what makes the agent reach for this skill': '触发线索——什么情况下该用这条技能',
+    Preview: '预览',
+    Source: '来源',
+    Manual: '手动',
+    Precipitated: '沉淀',
+    'No skills yet': '暂无技能',
+    'Create your first skill': '新建第一个技能',
+    'Skill created successfully': '技能创建成功',
+    'Skill updated successfully': '技能更新成功',
+    'Skill deleted successfully': '技能删除成功',
+    'Skill management': '技能管理',
 
     // 对话式调度（独立「定时任务」菜单）
     Agent: '智能体',

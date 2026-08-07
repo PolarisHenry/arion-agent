@@ -20,6 +20,7 @@ import { chat } from './llm';
 import { getTools, executeTool, type ToolContext } from './tools';
 import { buildSystemPrompt, type BuildSystemPromptOptions } from './agent-prompt';
 import { loadMemoryFacts, renderMemorySection } from './agent-memory';
+import { loadSkillIndex } from './skill-source';
 import { runAgentLoop, buildWrapUpMessages, WRAP_UP_FALLBACK } from './agent-loop';
 import { resolveLoopPolicy } from './agent-policy';
 
@@ -111,7 +112,17 @@ export async function runProactiveTurn(args: {
   } catch {
     // best effort — triggered run proceeds without memory
   }
-  const promptOpts: BuildSystemPromptOptions = { memorySection, feishuLinked };
+  let skillSection = '';
+  try {
+    skillSection = await loadSkillIndex(
+      args.agentId,
+      agentRow.ownerId,
+      agentRow.platform ?? 'lark'
+    );
+  } catch {
+    // best effort — triggered run proceeds without skill index
+  }
+  const promptOpts: BuildSystemPromptOptions = { memorySection, skillSection, feishuLinked };
   if (args.triggeredRun) promptOpts.triggeredRun = args.triggeredRun;
   const systemPrompt = await buildSystemPrompt(agentRow.systemPrompt, promptOpts);
 

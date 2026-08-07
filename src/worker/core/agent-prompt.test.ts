@@ -130,3 +130,33 @@ describe('buildSystemPrompt memory injection', () => {
     expect(prompt).not.toContain('已记下的信息');
   });
 });
+
+describe('buildSystemPrompt skill section', () => {
+  it('appends skillSection when provided', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt(
+      '你是助手。',
+      { skillSection: '\n\n## 技能\n- `weekly-report`: 发周报' },
+      fakeExec as any
+    );
+    expect(prompt).toContain('## 技能');
+    expect(prompt).toContain('`weekly-report`: 发周报');
+  });
+
+  it('omits skill section when not provided', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', undefined, fakeExec as any);
+    expect(prompt).not.toContain('按需加载：判断相关时调 skill 工具');
+  });
+
+  it('always carries skill usage rules (load/create/precipitate)', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', undefined, fakeExec as any);
+    expect(prompt).toContain('skill 工具');
+    expect(prompt).toContain('沉淀');
+    expect(prompt).toContain('经用户同意');
+  });
+});
