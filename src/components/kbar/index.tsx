@@ -1,6 +1,13 @@
 'use client';
 import { navGroups } from '@/config/nav-config';
-import { KBarAnimator, KBarPortal, KBarPositioner, KBarProvider, KBarSearch } from 'kbar';
+import {
+  KBarAnimator,
+  KBarPortal,
+  KBarPositioner,
+  KBarProvider,
+  KBarSearch,
+  useRegisterActions
+} from 'kbar';
 import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import RenderResults from './render-result';
@@ -9,11 +16,26 @@ import { useFilteredNavGroups } from '@/hooks/use-nav';
 import { useTranslation } from '@/lib/i18n';
 
 export default function KBar({ children }: { children: React.ReactNode }) {
+  // Nav actions are registered reactively inside KBarComponent via
+  // useRegisterActions. kbar snapshots the `actions` prop exactly once (an
+  // empty-deps useMemo in useStore.js), so passing async-derived actions —
+  // these depend on useMe() permissions — as a prop would freeze the palette at
+  // the pre-permission state and gate out 数字员工 / 系统设置 forever.
+  // useRegisterActions re-registers on change. Same pattern as useThemeSwitching.
+  return (
+    <KBarProvider>
+      <KBarComponent>{children}</KBarComponent>
+    </KBarProvider>
+  );
+}
+
+const KBarComponent = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
   const filteredGroups = useFilteredNavGroups(navGroups);
   const { t } = useTranslation();
+  useThemeSwitching();
 
-  // These action are for the navigation
+  // These actions are for the navigation
   const actions = useMemo(() => {
     // Define navigateTo inside the useMemo callback to avoid dependency array issues
     const navigateTo = (url: string) => {
@@ -58,15 +80,9 @@ export default function KBar({ children }: { children: React.ReactNode }) {
     });
   }, [router, filteredGroups, t]);
 
-  return (
-    <KBarProvider actions={actions}>
-      <KBarComponent>{children}</KBarComponent>
-    </KBarProvider>
-  );
-}
-const KBarComponent = ({ children }: { children: React.ReactNode }) => {
-  useThemeSwitching();
-  const { t } = useTranslation();
+  // Reactive: when useMe() resolves and filteredGroups changes, kbar unregisters
+  // the stale pre-permission set and registers the full list.
+  useRegisterActions(actions, [actions]);
 
   return (
     <>
