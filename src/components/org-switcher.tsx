@@ -28,8 +28,10 @@ export function OrgSwitcher() {
           <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
             <BrandLogo className='size-5' />
           </div>
-          <div className='flex flex-1 items-center text-left'>
-            <span className='text-lg font-bold tracking-tight'>{t('Arion Agent')}</span>
+          <div className='flex min-w-0 flex-1 items-center text-left transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0'>
+            <span className='text-lg font-bold tracking-tight whitespace-nowrap'>
+              {t('Arion Agent')}
+            </span>
           </div>
         </SidebarMenuButton>
       </SidebarMenuItem>
