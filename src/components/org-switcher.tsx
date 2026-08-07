@@ -29,7 +29,10 @@ export function OrgSwitcher() {
             <BrandLogo className='size-5' />
           </div>
           <div className='flex min-w-0 flex-1 items-center text-left transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0'>
-            <span className='text-lg font-bold tracking-tight whitespace-nowrap'>
+            <span
+              className='text-lg font-semibold tracking-normal whitespace-nowrap'
+              style={{ fontFamily: 'Outfit, var(--font-outfit), sans-serif' }}
+            >
               {t('Arion Agent')}
             </span>
           </div>
