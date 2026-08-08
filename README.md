@@ -2,6 +2,8 @@
 
 [English](./README.en.md)
 
+![Arion Agent](./public/cn.png)
+
 AI 数字员工管理后台（Admin Platform）—— 在 Dashboard 上统一管理 Agent、定时任务、LLM 模型、用户与角色权限；配置完成后由后台 Worker 驱动这些 Agent 在飞书中运行，与用户实时对话。
 
 ## 架构
