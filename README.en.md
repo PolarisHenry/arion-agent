@@ -2,6 +2,8 @@
 
 [中文](./README.md)
 
+![Arion Agent](./public/en.png)
+
 AI Digital Employee Admin Platform — manage Agents, scheduled tasks, LLM models, users, and role permissions from a single Dashboard. Once configured, a background Worker drives these Agents to run in Feishu (Lark) and converse with users in real time.
 
 ## Architecture
