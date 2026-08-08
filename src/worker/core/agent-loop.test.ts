@@ -349,6 +349,84 @@ describe('runAgentLoop stop reason: error-streak', () => {
 });
 
 // -----------------------------------------------------------
+// Regression: parallel tool calls + mid-batch guardrail must not orphan
+// tool_call_ids (causes 400 "insufficient tool messages following tool_calls").
+// -----------------------------------------------------------
+
+describe('runAgentLoop tool-call / tool-result pairing', () => {
+  it('pairs every tool_call_id with a tool message when repetition trips mid-batch', async () => {
+    // Round 1: search q=a (repeatCount=1). Round 2: TWO parallel calls — the
+    // first repeats search q=a (trips maxRepeats=2), the second (create) is a
+    // different tool that must STILL get a tool message. Breaking mid-batch
+    // leaves the assistant tool_calls message without a result for `create`,
+    // and the caller's wrap-up chat() then 400s.
+    const chat = chatAlternating([
+      { toolCalls: [{ id: 'r1', name: 'search', arguments: '{"q":"a"}' }] },
+      {
+        toolCalls: [
+          { id: 'r2a', name: 'search', arguments: '{"q":"a"}' },
+          { id: 'r2b', name: 'create', arguments: '{"x":1}' }
+        ]
+      }
+    ]);
+    const executed: string[] = [];
+
+    const result = await runAgentLoop(
+      makeDeps({
+        chat,
+        policy: { ...DEFAULT_POLICY, maxRepeats: 2 },
+        executeTool: async (name) => {
+          executed.push(name);
+          return 'ok';
+        }
+      })
+    );
+
+    const requested = result.messages.flatMap((m) => m.tool_calls?.map((tc) => tc.id) ?? []);
+    const answered = result.messages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id);
+
+    // Every requested tool_call_id must have a matching tool result — no orphans.
+    expect(answered).toHaveLength(requested.length);
+    for (const id of requested) {
+      expect(answered).toContain(id);
+    }
+    expect(executed).toContain('create');
+    expect(result.stopReason).toBe('repetition');
+  });
+
+  it('pairs every tool_call_id with a tool message when error-streak trips mid-batch', async () => {
+    // Single batch: [failing, good]. maxConsecutiveErrors=1 trips on the first
+    // (failing) call — but `good` must still get a tool message.
+    const chat = chatToolCalls([
+      { id: 'e1', name: 'fragile', arguments: '{}' },
+      { id: 'g1', name: 'good', arguments: '{}' }
+    ]);
+    const executed: string[] = [];
+
+    const result = await runAgentLoop(
+      makeDeps({
+        chat,
+        policy: { ...DEFAULT_POLICY, maxConsecutiveErrors: 1, maxRepeats: 999 },
+        executeTool: async (name) => {
+          executed.push(name);
+          return name === 'fragile' ? '[调用失败] boom' : 'ok';
+        }
+      })
+    );
+
+    const requested = result.messages.flatMap((m) => m.tool_calls?.map((tc) => tc.id) ?? []);
+    const answered = result.messages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id);
+
+    expect(answered).toHaveLength(requested.length);
+    for (const id of requested) {
+      expect(answered).toContain(id);
+    }
+    expect(executed).toContain('good');
+    expect(result.stopReason).toBe('error-streak');
+  });
+});
+
+// -----------------------------------------------------------
 // Stop path: 'token-budget' (cumulative tokens)
 // -----------------------------------------------------------
 

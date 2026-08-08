@@ -11,7 +11,7 @@ import { config } from '../config';
 
 const log = createLogger('session');
 
-type Message = {
+export type Message = {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[];
@@ -48,7 +48,7 @@ export class SessionManager {
     }
 
     const msgs = (row.messages as Message[]) ?? [];
-    const sanitized = this.sanitize(msgs);
+    const sanitized = sanitizeHistory(msgs);
     log.debug(`session loaded: ${chatId} (${msgs.length} → ${sanitized.length} after sanitize)`);
     return sanitized;
   }
@@ -161,26 +161,47 @@ export class SessionManager {
 
     return result;
   }
+}
 
-  /** Make a loaded history safe to replay: drop system messages (not persisted
-   *  here) and any tool message whose tool_call_id has no preceding
-   *  assistant(tool_calls). Keeps a corrupt legacy row from permanently
-   *  400-ing the agent. */
-  private sanitize(messages: Message[]): Message[] {
-    const seenToolCallIds = new Set<string>();
-    const out: Message[] = [];
-    for (const m of messages) {
-      if (m.role === 'system') continue;
-      if (m.role === 'tool') {
-        if (!m.tool_call_id || !seenToolCallIds.has(m.tool_call_id)) continue;
-        out.push(m);
-      } else {
-        if (m.role === 'assistant' && m.tool_calls) {
-          for (const tc of m.tool_calls) if (tc.id) seenToolCallIds.add(tc.id);
-        }
-        out.push(m);
-      }
-    }
-    return out;
+/** Make a loaded history safe to replay against the chat API.
+ *
+ *  Two corruption modes are repaired (both 400 the API otherwise):
+ *  (1) FORWARD orphan — an assistant(tool_calls) whose tool results were
+ *      partially lost (e.g. a prior agent-loop bug broke mid-batch). The API
+ *      rejects this as "insufficient tool messages following tool_calls
+ *      message". Fix: drop the assistant(tool_calls) and its partial results.
+ *  (2) REVERSE orphan — a tool message whose requesting assistant(tool_calls)
+ *      was truncated away. Fix: drop the tool message.
+ *
+ *  Well-formed history passes through unchanged. Pure — unit-tested directly. */
+export function sanitizeHistory(messages: Message[]): Message[] {
+  // Every tool_call_id that has at least one tool result anywhere in the list.
+  const answered = new Set<string>();
+  for (const m of messages) {
+    if (m.role === 'tool' && m.tool_call_id) answered.add(m.tool_call_id);
   }
+
+  const out: Message[] = [];
+  // Ids claimed by a KEPT assistant(tool_calls). A tool message is replayed
+  // only when its parent batch was kept, so we never emit an orphan tool.
+  const claimed = new Set<string>();
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+
+    if (m.role === 'tool') {
+      if (m.tool_call_id && claimed.has(m.tool_call_id)) out.push(m);
+      continue;
+    }
+
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      // Keep the batch only when EVERY id has a result — a partial batch is
+      // dropped wholesale, since keeping half would still 400 the API.
+      const fullyAnswered = m.tool_calls.every((tc) => Boolean(tc.id) && answered.has(tc.id));
+      if (!fullyAnswered) continue;
+      for (const tc of m.tool_calls) if (tc.id) claimed.add(tc.id);
+    }
+
+    out.push(m);
+  }
+  return out;
 }
