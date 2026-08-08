@@ -355,7 +355,12 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
       }
     }
 
-    // Execute each tool call, checking stuck guards after each
+    // Execute EVERY tool call in this assistant batch. The stuck-guard break
+    // MUST NOT fire mid-batch: breaking after tool i would leave this assistant
+    // tool_calls message without tool results for ids i+1..N, and the caller's
+    // subsequent wrap-up chat() then 400s ("insufficient tool messages following
+    // tool_calls message"). So we finish the batch — keeping history valid —
+    // record shouldBreak, and let the round-end break below exit the loop.
     let shouldBreak = false;
     for (const tc of resp.toolCalls) {
       let args: Record<string, unknown> = {};
@@ -390,10 +395,9 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
         repeatCount = 1;
         lastRepeatKey = key;
       }
-      if (repeatCount >= policy.maxRepeats) {
+      if (repeatCount >= policy.maxRepeats && stopReason === 'final') {
         stopReason = 'repetition';
         shouldBreak = true;
-        break;
       }
 
       // —— Consecutive error check (after execution) ——
@@ -402,10 +406,9 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
       } else {
         consecutiveErrors = 0;
       }
-      if (consecutiveErrors >= policy.maxConsecutiveErrors) {
+      if (consecutiveErrors >= policy.maxConsecutiveErrors && stopReason === 'final') {
         stopReason = 'error-streak';
         shouldBreak = true;
-        break;
       }
     }
 
