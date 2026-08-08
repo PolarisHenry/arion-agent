@@ -5,7 +5,7 @@ const AUTH_COOKIE = 'better-auth.session_token';
 // Over HTTPS Better Auth prefixes the cookie with `__Secure-`.
 const SECURE_AUTH_COOKIE = '__Secure-better-auth.session_token';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths
