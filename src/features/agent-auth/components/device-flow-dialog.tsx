@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { agentUserAuthQueryOptions } from '@/features/agent-auth/api/queries';
 import { userAuthActionMutation } from '@/features/agent-auth/api/mutations';
 import { Icons } from '@/components/icons';
+import { copyToClipboard } from '@/lib/clipboard';
 
 type Step = 'init' | 'started' | 'completed' | 'error';
 
@@ -97,11 +98,14 @@ export function DeviceFlowDialog({
     startMutation.mutate({ agentId, action: 'start' });
   };
 
-  const handleCopyUrl = () => {
-    if (auth?.verificationUrl) {
-      navigator.clipboard.writeText(auth.verificationUrl);
+  const handleCopyUrl = async () => {
+    if (!auth?.verificationUrl) return;
+    try {
+      await copyToClipboard(auth.verificationUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // 复制失败(如权限被拒)时保持「未复制」状态,不翻转图标误导用户。
     }
   };
 

@@ -3,6 +3,7 @@ import { useKBar, useRegisterActions, type Action } from 'kbar';
 import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 import { useTranslation } from '@/lib/i18n';
+import { copyToClipboard } from '@/lib/clipboard';
 import { detectTimeConversion, isMathExpression, safeEval } from '@/lib/kbar-quick';
 
 // quick action 的 keywords 与当前输入完全一致，fzf 得分最高，自然浮到结果顶部；
@@ -11,7 +12,7 @@ const QUICK_PRIORITY = 90;
 
 async function copyResult(result: string, t: (key: string) => string) {
   try {
-    await navigator.clipboard.writeText(result);
+    await copyToClipboard(result);
     toast.success(t('Result copied to clipboard'));
   } catch {
     toast.error(t('Something went wrong.'));
