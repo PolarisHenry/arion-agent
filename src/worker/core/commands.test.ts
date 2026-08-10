@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseCommand, executeClearCommand } from './commands';
+import {
+  parseCommand,
+  executeClearCommand,
+  STOP_CONFIRMATION_TEXT,
+  NO_RUNNING_TURN_TEXT
+} from './commands';
 
 describe('parseCommand', () => {
   it('detects /clear', () => {
@@ -22,6 +27,30 @@ describe('parseCommand', () => {
     expect(parseCommand('帮我 /clear')).toBeNull();
     expect(parseCommand('')).toBeNull();
     expect(parseCommand('你好')).toBeNull();
+  });
+
+  it('detects /stop', () => {
+    expect(parseCommand('/stop')).toBe('stop');
+  });
+
+  it('stop is case-insensitive and tolerates whitespace', () => {
+    expect(parseCommand('/Stop')).toBe('stop');
+    expect(parseCommand('/STOP')).toBe('stop');
+    expect(parseCommand('  /stop ')).toBe('stop');
+    expect(parseCommand('/stop\n')).toBe('stop');
+  });
+
+  it('stop returns null for lookalikes', () => {
+    expect(parseCommand('/stopx')).toBeNull();
+    expect(parseCommand('/stop 一下')).toBeNull();
+    expect(parseCommand('帮我 /stop')).toBeNull();
+  });
+});
+
+describe('stop constants', () => {
+  it('exposes a stop confirmation and an idle message', () => {
+    expect(STOP_CONFIRMATION_TEXT).toContain('已停止');
+    expect(NO_RUNNING_TURN_TEXT).toContain('没有');
   });
 });
 

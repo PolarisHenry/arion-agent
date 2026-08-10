@@ -38,7 +38,12 @@ import { resolveLoopPolicy } from './agent-policy';
 import { buildSystemPrompt } from './agent-prompt';
 import { loadMemoryFacts, renderMemorySection } from './agent-memory';
 import { loadSkillIndex } from './skill-source';
-import { parseCommand, executeClearCommand } from './commands';
+import {
+  parseCommand,
+  executeClearCommand,
+  STOP_CONFIRMATION_TEXT,
+  NO_RUNNING_TURN_TEXT
+} from './commands';
 import { ChatSerializer } from './chat-serializer';
 import { SessionManager } from '../session/index';
 import { writeLog } from './log-writer';
@@ -76,6 +81,21 @@ export class AgentRuntime {
   private sessionMgr: SessionManager;
   private serializer = new ChatSerializer();
   private logTag: string;
+  /** In-flight turn AbortControllers, keyed by chatId. ChatSerializer guarantees
+   *  at most one turn per chatId, so 1:1. /stop looks up and aborts here —
+   *  bypassing the serializer (which the running turn holds). */
+  private readonly aborts = new Map<string, AbortController>();
+
+  /** Abort the in-flight turn for a chat (if any). Returns whether one was
+   *  running. Called by the /stop command — bypasses ChatSerializer so it can
+   *  interrupt a turn that's holding the serializer. Idempotent: aborting an
+   *  already-aborted controller is a no-op. */
+  abortTurn(chatId: string): boolean {
+    const ac = this.aborts.get(chatId);
+    if (!ac) return false;
+    ac.abort();
+    return true;
+  }
 
   // Refs for hot-reload
   private agentId: string;
@@ -333,6 +353,24 @@ export class AgentRuntime {
       return;
     }
 
+    if (parseCommand(msg.content) === 'stop') {
+      // Side-channel: must NOT go through the serializer — it would queue
+      // behind the very turn we want to stop (ChatSerializer is FIFO per
+      // chat). Abort the in-flight controller directly. The aborted turn
+      // sends its own STOP_CONFIRMATION from handleTurn's aborted branch, so
+      // we only speak up here when nothing was running (no interleave with a
+      // live turn's output).
+      const wasRunning = this.abortTurn(msg.chatId);
+      if (!wasRunning) {
+        try {
+          await this.channel.sendText(msg.chatId, NO_RUNNING_TURN_TEXT);
+        } catch (err: any) {
+          log.warn(`stop idle reply send failed for ${msg.chatId}: ${err?.message ?? err}`);
+        }
+      }
+      return;
+    }
+
     await this.serializer.serialize(msg.chatId, () => this.handleTurn(msg));
   }
 
@@ -362,6 +400,12 @@ export class AgentRuntime {
     // out here so the error-path writeLog can record what the model was fed
     // even when the turn throws mid-processing.
     let userText: string = msg.content;
+
+    // Register this turn's AbortController so /stop can interrupt it. Cleared
+    // in the finally below — must outlive the try so an aborted early-return
+    // (or a thrown catch) still unregisters.
+    const abortController = new AbortController();
+    this.aborts.set(chatId, abortController);
 
     try {
       // Build conversation context. The system prompt is re-injected fresh on
@@ -458,7 +502,7 @@ export class AgentRuntime {
       // chat, before any tool runs, so re-running has no side effects.
       const runLoop = (initialMessages: Message[]) =>
         runAgentLoop({
-          chat: (msgs, tlz) => chat(llmConfig, msgs, tlz),
+          chat: (msgs, tlz, signal) => chat(llmConfig, msgs, tlz, signal),
           executeTool,
           tools,
           systemPrompt,
@@ -480,7 +524,8 @@ export class AgentRuntime {
             ownerId: this.ownerId,
             chatId,
             authHooks: this.authHooks
-          }
+          },
+          signal: abortController.signal
         });
 
       const loopResult = await runWithVisionFallback({
@@ -501,6 +546,35 @@ export class AgentRuntime {
       let finalResponse = loopResult.finalContent;
       const toolCallLog = loopResult.toolCallLog;
       let totalTokens = loopResult.totalTokens;
+
+      if (loopResult.stopReason === 'aborted') {
+        // /stop fired mid-turn. Save the completed partial (any trailing
+        // orphan tool_call is repaired by sanitizeHistory on load — same
+        // safety net as the 62f8dae fix) so the next corrective message has
+        // context. Skip wrap-up + streamReply: the point is to stop, not
+        // talk. The stop confirmation is sent HERE (not by the /stop handler)
+        // so it can't interleave with this turn's in-flight output.
+        await this.sessionMgr.save(chatId, chatType, stripImagesForPersist(loopResult.messages));
+        try {
+          await this.channel.sendText(chatId, STOP_CONFIRMATION_TEXT);
+        } catch (err: any) {
+          log.warn(`stop confirmation send failed for ${chatId}: ${err?.message ?? err}`);
+        }
+        await writeLog({
+          agentId: this.agentId,
+          ownerId: this.agentRow.ownerId,
+          chatId,
+          type: 'message',
+          messageContent: userText,
+          responseContent: '(用户中止)',
+          toolCalls: toolCallLog.length > 0 ? toolCallLog : undefined,
+          tokensUsed: totalTokens,
+          durationMs: Date.now() - startTime,
+          status: 'aborted',
+          stopReason: 'aborted'
+        });
+        return;
+      }
 
       if (loopResult.stopReason === 'final') {
         if (!finalResponse.trim()) {
@@ -586,16 +660,19 @@ export class AgentRuntime {
         error: err?.message ?? String(err),
         durationMs
       });
+    } finally {
+      // Runs on success, error, AND the aborted early-return above. Without
+      // finally, the aborted branch's `return` inside try would skip cleanup
+      // — leaking the AbortController (a stale entry blocks future /stop on
+      // this chatId) plus the typing indicator and temp image files. This
+      // also hardens the original code: a throw inside catch no longer skips
+      // cleanup.
+      this.aborts.delete(chatId);
+      if (prepared) {
+        await cleanupTempPaths(prepared.tempPaths).catch(() => {});
+      }
+      if (typingHandle) this.channel.endTyping(typingHandle).catch(() => {});
     }
-
-    // Clean up this turn's temp image files now that every tool call has
-    // finished (the model may have used these paths to upload/insert images).
-    if (prepared) {
-      await cleanupTempPaths(prepared.tempPaths).catch(() => {});
-    }
-
-    // Clear the typing indicator when we're done
-    if (typingHandle) this.channel.endTyping(typingHandle).catch(() => {});
   }
 
   /** Deliver an already-generated reply with a local typewriter cadence,

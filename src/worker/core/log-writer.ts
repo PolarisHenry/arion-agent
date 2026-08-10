@@ -18,7 +18,7 @@ export type LogEntry = {
   toolCalls?: { tool: string; args: unknown; result?: string }[];
   tokensUsed?: number;
   durationMs?: number;
-  status?: 'success' | 'error';
+  status?: 'success' | 'error' | 'aborted';
   error?: string;
   /** Why the agent loop stopped this turn (final / token-budget / timeout /
    *  repetition / error-streak / round-ceiling). Omit on the error path where

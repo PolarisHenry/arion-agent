@@ -16,7 +16,7 @@ import { config } from '../config';
 /** Dependencies injected into runAgentLoop so it stays pure and testable. */
 export type LoopDeps = {
   /** Non-streaming chat — loop needs full tool_calls per round. */
-  chat: (messages: LlmMessage[], tools?: LlmTool[]) => Promise<ChatResult>;
+  chat: (messages: LlmMessage[], tools?: LlmTool[], signal?: AbortSignal) => Promise<ChatResult>;
   /** Tool executor — returns the result string fed back to the model. */
   executeTool: (name: string, args: Record<string, unknown>, ctx: ToolContext) => Promise<string>;
   tools: LlmTool[];
@@ -27,6 +27,10 @@ export type LoopDeps = {
   /** Interim prose callback (e.g. "我查一下~") — delivered to user before tools run. */
   onInterim?: (content: string) => Promise<void>;
   toolCtx: ToolContext;
+  /** Abort signal from the turn's AbortController. When aborted, the loop
+   *  stops with stopReason 'aborted' (checked per round + on AbortError from
+   *  chat/executeTool). Undefined = not abortable. */
+  signal?: AbortSignal;
 };
 
 /** Stop policy: resource caps + stuck guards. "maxRepeats" and "maxConsecutiveErrors"
@@ -51,7 +55,8 @@ export type StopReason =
   | 'timeout' // wall-clock exceeded maxWallMs
   | 'repetition' // same tool+args repeated maxRepeats times
   | 'error-streak' // consecutive tool errors hit maxConsecutiveErrors
-  | 'round-ceiling'; // hit maxRounds (should be rare — token-budget catches first)
+  | 'round-ceiling' // hit maxRounds (should be rare — token-budget catches first)
+  | 'aborted'; // user hit /stop mid-turn
 
 /** What runAgentLoop returns. */
 export type LoopResult = {
@@ -72,8 +77,10 @@ export type LoopResult = {
 // -----------------------------------------------------------
 
 /** Per-stop-reason wrap-up instructions. All demand honest progress reporting
- *  and include a "回复「继续」可接着处理" resume hint. */
-export const WRAP_UP_INSTRUCTIONS: Record<Exclude<StopReason, 'final'>, string> = {
+ *  and include a "回复「继续」可接着处理" resume hint. 'aborted' is excluded — an
+ *  aborted turn skips wrap-up entirely (no extra LLM call) and sends a fixed
+ *  stop-confirmation from the runtime. */
+export const WRAP_UP_INSTRUCTIONS: Record<Exclude<StopReason, 'final' | 'aborted'>, string> = {
   'token-budget':
     '你已达到本轮的 token 预算上限，现在不能再调用任何工具。请根据上面已经完成的操作，给用户一个真实、简洁的进展说明：已经做了什么、还剩下什么没做完，并告诉用户回复「继续」你就可以接着处理。不要编造未完成的结果——没做完的就如实说没做完。用你一贯的口吻，简洁回复。',
   timeout:
@@ -124,7 +131,7 @@ const NUDGE_INSTRUCTION = [
 export function buildWrapUpMessages(
   systemPrompt: string,
   history: LlmMessage[],
-  stopReason: Exclude<StopReason, 'final'>
+  stopReason: Exclude<StopReason, 'final' | 'aborted'>
 ): LlmMessage[] {
   const instruction = WRAP_UP_INSTRUCTIONS[stopReason];
   return [
@@ -258,8 +265,17 @@ export function applyFidelityDrop(
  *  Any other exit: stopReason reflects what tripped; caller should follow up
  *  with buildWrapUpMessages() + a tool-free chat to report progress. */
 export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
-  const { chat, executeTool, tools, systemPrompt, initialMessages, policy, onInterim, toolCtx } =
-    deps;
+  const {
+    chat,
+    executeTool,
+    tools,
+    systemPrompt,
+    initialMessages,
+    policy,
+    onInterim,
+    toolCtx,
+    signal
+  } = deps;
 
   // Working copy — we mutate this and return it
   const messages: LlmMessage[] = [...initialMessages];
@@ -288,6 +304,11 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
   const loopStartMs = Date.now();
 
   for (let round = 0; round < policy.maxRounds; round++) {
+    // —— /stop check (before any work this round) ——
+    if (signal?.aborted) {
+      stopReason = 'aborted';
+      break;
+    }
     // —— Per-round resource checks ——
     if (totalTokens >= policy.maxTokens && policy.maxTokens > 0) {
       stopReason = 'token-budget';
@@ -309,110 +330,130 @@ export async function runAgentLoop(deps: LoopDeps): Promise<LoopResult> {
 
     // Build messages for this round only (system prompt is NOT persisted)
     const llmMessages: LlmMessage[] = [{ role: 'system', content: systemPrompt }, ...messages];
-    const resp = await chat(llmMessages, tools);
+    // Wrap the round body so an AbortError from chat()/executeTool() (fired by
+    // /stop) maps to stopReason 'aborted' instead of propagating as a turn
+    // error. Real errors re-throw. Checked via signal.aborted so the OpenAI
+    // APIUserAbortError, a killed lark-cli child, and the executeTool pre-check
+    // all converge on the same path.
+    try {
+      const resp = await chat(llmMessages, tools, signal);
 
-    totalTokens += resp.usage.totalTokens;
+      totalTokens += resp.usage.totalTokens;
 
-    // Model returned no tool calls. Usually that's the natural final answer —
-    // BUT if no tool has run yet this turn and the prose reads like an action
-    // promise ("好嘞我先给你建"), the model is announcing intent without
-    // acting. Inject one "commit: act or ask" nudge and continue, rather than
-    // shipping an unfulfilled promise as the final answer. Genuine clarifying
-    // questions and chit-chat contain no promise phrase → fall straight through
-    // to a legit final (and never cost an extra round).
-    if (!resp.toolCalls || resp.toolCalls.length === 0) {
-      const prose = (resp.content ?? '').trim();
-      if (!nudged && toolCallLog.length === 0 && PROMISE_RE.test(prose)) {
-        nudged = true;
-        messages.push({ role: 'assistant', content: resp.content ?? '' });
-        messages.push({ role: 'user', content: NUDGE_INSTRUCTION });
-        continue;
-      }
-      reachedFinal = true;
-      if (resp.content) {
-        finalContent = resp.content;
-      }
-      break;
-    }
-
-    // Model is working — push the assistant message with tool_calls
-    messages.push({
-      role: 'assistant',
-      content: resp.content ?? '',
-      tool_calls: resp.toolCalls.map((tc) => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: { name: tc.name, arguments: tc.arguments }
-      }))
-    });
-
-    // Deliver interim prose if the model wrote any (e.g. "我查一下~")
-    if (resp.content && resp.content.trim() && onInterim) {
-      try {
-        await onInterim(resp.content);
-      } catch {
-        // Interim delivery failures must not abort the turn
-      }
-    }
-
-    // Execute EVERY tool call in this assistant batch. The stuck-guard break
-    // MUST NOT fire mid-batch: breaking after tool i would leave this assistant
-    // tool_calls message without tool results for ids i+1..N, and the caller's
-    // subsequent wrap-up chat() then 400s ("insufficient tool messages following
-    // tool_calls message"). So we finish the batch — keeping history valid —
-    // record shouldBreak, and let the round-end break below exit the loop.
-    let shouldBreak = false;
-    for (const tc of resp.toolCalls) {
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(tc.arguments);
-      } catch {
-        args = {};
+      // Model returned no tool calls. Usually that's the natural final answer —
+      // BUT if no tool has run yet this turn and the prose reads like an action
+      // promise ("好嘞我先给你建"), the model is announcing intent without
+      // acting. Inject one "commit: act or ask" nudge and continue, rather than
+      // shipping an unfulfilled promise as the final answer. Genuine clarifying
+      // questions and chit-chat contain no promise phrase → fall straight through
+      // to a legit final (and never cost an extra round).
+      if (!resp.toolCalls || resp.toolCalls.length === 0) {
+        const prose = (resp.content ?? '').trim();
+        if (!nudged && toolCallLog.length === 0 && PROMISE_RE.test(prose)) {
+          nudged = true;
+          messages.push({ role: 'assistant', content: resp.content ?? '' });
+          messages.push({ role: 'user', content: NUDGE_INSTRUCTION });
+          continue;
+        }
+        reachedFinal = true;
+        if (resp.content) {
+          finalContent = resp.content;
+        }
+        break;
       }
 
-      // Execute first
-      const result = await executeTool(tc.name, args, toolCtx);
-      toolCallLog.push({ tool: tc.name, args, result });
-
-      // Layer 1: Observation mask — structured truncation so one giant
-      // JSON dump (e.g. sheets cells-get at 50万 chars) doesn't balloon
-      // every subsequent round's input. Preserves metadata header + head
-      // + tail so the model knows what was truncated and can narrow its
-      // next tool call accordingly.
-      const masked = maskToolResult(result, tc.name, config.toolResultMaxChars);
+      // Model is working — push the assistant message with tool_calls
       messages.push({
-        role: 'tool',
-        content: masked,
-        tool_call_id: tc.id,
-        name: tc.name
+        role: 'assistant',
+        content: resp.content ?? '',
+        tool_calls: resp.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: { name: tc.name, arguments: tc.arguments }
+        }))
       });
 
-      // —— Repetition check (after execution) ——
-      const key = `${tc.name}:${argsKey(args)}`;
-      if (key === lastRepeatKey) {
-        repeatCount++;
-      } else {
-        repeatCount = 1;
-        lastRepeatKey = key;
-      }
-      if (repeatCount >= policy.maxRepeats && stopReason === 'final') {
-        stopReason = 'repetition';
-        shouldBreak = true;
+      // Deliver interim prose if the model wrote any (e.g. "我查一下~")
+      if (resp.content && resp.content.trim() && onInterim) {
+        try {
+          await onInterim(resp.content);
+        } catch {
+          // Interim delivery failures must not abort the turn
+        }
       }
 
-      // —— Consecutive error check (after execution) ——
-      if (isToolError(result)) {
-        consecutiveErrors++;
-      } else {
-        consecutiveErrors = 0;
+      // Execute EVERY tool call in this assistant batch. The stuck-guard break
+      // MUST NOT fire mid-batch: breaking after tool i would leave this assistant
+      // tool_calls message without tool results for ids i+1..N, and the caller's
+      // subsequent wrap-up chat() then 400s ("insufficient tool messages following
+      // tool_calls message"). So we finish the batch — keeping history valid —
+      // record shouldBreak, and let the round-end break below exit the loop.
+      let shouldBreak = false;
+      for (const tc of resp.toolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(tc.arguments);
+        } catch {
+          args = {};
+        }
+
+        // Execute first. Merge the turn's signal into the tool context so tools
+        // that spawn subprocesses (lark-cli) can be killed on /stop, and
+        // executeTool's pre-check can short-circuit.
+        const result = await executeTool(tc.name, args, { ...toolCtx, signal });
+        toolCallLog.push({ tool: tc.name, args, result });
+
+        // Layer 1: Observation mask — structured truncation so one giant
+        // JSON dump (e.g. sheets cells-get at 50万 chars) doesn't balloon
+        // every subsequent round's input. Preserves metadata header + head
+        // + tail so the model knows what was truncated and can narrow its
+        // next tool call accordingly.
+        const masked = maskToolResult(result, tc.name, config.toolResultMaxChars);
+        messages.push({
+          role: 'tool',
+          content: masked,
+          tool_call_id: tc.id,
+          name: tc.name
+        });
+
+        // —— Repetition check (after execution) ——
+        const key = `${tc.name}:${argsKey(args)}`;
+        if (key === lastRepeatKey) {
+          repeatCount++;
+        } else {
+          repeatCount = 1;
+          lastRepeatKey = key;
+        }
+        if (repeatCount >= policy.maxRepeats && stopReason === 'final') {
+          stopReason = 'repetition';
+          shouldBreak = true;
+        }
+
+        // —— Consecutive error check (after execution) ——
+        if (isToolError(result)) {
+          consecutiveErrors++;
+        } else {
+          consecutiveErrors = 0;
+        }
+        if (consecutiveErrors >= policy.maxConsecutiveErrors && stopReason === 'final') {
+          stopReason = 'error-streak';
+          shouldBreak = true;
+        }
       }
-      if (consecutiveErrors >= policy.maxConsecutiveErrors && stopReason === 'final') {
-        stopReason = 'error-streak';
-        shouldBreak = true;
+
+      if (shouldBreak) break;
+    } catch (err) {
+      // /stop fired mid-round (chat fetch aborted, lark-cli killed, or the
+      // executeTool pre-check threw). Map to 'aborted' and exit the loop —
+      // any partial messages from completed rounds are preserved for the
+      // runtime to save. Real (non-abort) errors re-throw to the turn's
+      // catch as before.
+      if (signal?.aborted) {
+        stopReason = 'aborted';
+        break;
       }
+      throw err;
     }
-
-    if (shouldBreak) break;
   }
 
   // Post-loop: determine stop reason. We exited naturally or via break.

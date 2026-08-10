@@ -78,6 +78,11 @@ export type ToolContext = {
   /** Reactive incremental-auth hook (user-identity missing_scope). Optional —
    *  when absent, user missing_scope falls back to the legacy scope-apply hint. */
   authHooks?: AuthHooks;
+  /** Abort signal from the running turn's AbortController. Tools that spawn
+   *  subprocesses (lark-cli) pass it to execFileAsync so /stop kills the
+   *  child; executeTool also checks it before running. Undefined when no turn
+   *  is abortable (e.g. proactive runner). */
+  signal?: AbortSignal;
 };
 
 // -----------------------------------------------------------
@@ -110,6 +115,14 @@ export async function executeTool(
   args: Record<string, unknown>,
   ctx: ToolContext
 ): Promise<string> {
+  // /stop: if the turn was aborted before this tool started, don't run it.
+  // The agent loop also catches AbortError from in-flight tools; this pre-check
+  // avoids starting a fresh (possibly slow) lark-cli call after /stop.
+  if (ctx.signal?.aborted) {
+    const e = new Error('aborted');
+    e.name = 'AbortError';
+    throw e;
+  }
   const tool = byName.get(toolName);
   if (!tool) {
     log.warn(`Unknown tool: ${toolName}`);

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   runAgentLoop,
   buildWrapUpMessages,
@@ -548,7 +548,7 @@ describe('runAgentLoop stop reason: timeout', () => {
 // -----------------------------------------------------------
 
 describe('buildWrapUpMessages', () => {
-  const stopReasons: Exclude<StopReason, 'final'>[] = [
+  const stopReasons: Exclude<StopReason, 'final' | 'aborted'>[] = [
     'token-budget',
     'timeout',
     'repetition',
@@ -598,7 +598,7 @@ describe('buildWrapUpMessages', () => {
 
 describe('wrap-up constants', () => {
   it('WRAP_UP_INSTRUCTIONS has entries for all non-final stop reasons', () => {
-    const reasons: Exclude<StopReason, 'final'>[] = [
+    const reasons: Exclude<StopReason, 'final' | 'aborted'>[] = [
       'token-budget',
       'timeout',
       'repetition',
@@ -803,5 +803,116 @@ describe('runAgentLoop announce-without-acting nudge', () => {
     expect(result.stopReason).toBe('final');
     expect(result.toolCallLog).toHaveLength(1);
     expect(result.finalContent).toBe('我帮你查到了，结果如下……');
+  });
+});
+
+// -----------------------------------------------------------
+// Stop path: 'aborted' (user /stop)
+// -----------------------------------------------------------
+
+describe('runAgentLoop stop reason: aborted', () => {
+  it('returns aborted immediately when signal is already aborted (no chat call)', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const chat = vi.fn();
+    const r = await runAgentLoop({
+      chat: chat as unknown as LoopDeps['chat'],
+      executeTool: async () => 'ok',
+      tools: [],
+      systemPrompt: 's',
+      initialMessages: [{ role: 'user', content: 'hi' }],
+      policy: DEFAULT_POLICY,
+      toolCtx: { profile: 'p', appId: 'a' },
+      signal: ac.signal
+    });
+    expect(r.stopReason).toBe('aborted');
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('returns aborted with prior round messages when chat throws on round 2', async () => {
+    const ac = new AbortController();
+    let call = 0;
+    const chat = vi.fn(async () => {
+      call++;
+      if (call === 1) {
+        return {
+          content: null,
+          toolCalls: [{ id: 't1', name: 'noop', arguments: '{}' }],
+          finishReason: 'tool_calls',
+          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+        };
+      }
+      ac.abort();
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      throw e;
+    });
+    const r = await runAgentLoop({
+      chat: chat as unknown as LoopDeps['chat'],
+      executeTool: async () => 'done',
+      tools: [],
+      systemPrompt: 's',
+      initialMessages: [{ role: 'user', content: 'hi' }],
+      policy: DEFAULT_POLICY,
+      toolCtx: { profile: 'p', appId: 'a' },
+      signal: ac.signal
+    });
+    expect(r.stopReason).toBe('aborted');
+    // round-1 assistant tool_calls + tool result preserved
+    expect(r.messages.some((m) => m.role === 'assistant' && m.tool_calls?.length)).toBe(true);
+    expect(r.messages.some((m) => m.role === 'tool')).toBe(true);
+  });
+
+  it('returns aborted when executeTool throws AbortError mid-batch', async () => {
+    const ac = new AbortController();
+    const chat = vi.fn(async () => ({
+      content: null,
+      toolCalls: [{ id: 't1', name: 'noop', arguments: '{}' }],
+      finishReason: 'tool_calls',
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    }));
+    const executeTool = vi.fn(async () => {
+      ac.abort();
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      throw e;
+    });
+    const r = await runAgentLoop({
+      chat: chat as unknown as LoopDeps['chat'],
+      executeTool,
+      tools: [],
+      systemPrompt: 's',
+      initialMessages: [{ role: 'user', content: 'hi' }],
+      policy: DEFAULT_POLICY,
+      toolCtx: { profile: 'p', appId: 'a' },
+      signal: ac.signal
+    });
+    expect(r.stopReason).toBe('aborted');
+  });
+
+  it('re-throws real (non-abort) errors from chat', async () => {
+    const ac = new AbortController();
+    const chat = vi.fn(async () => {
+      throw new Error('real LLM outage');
+    });
+    await expect(
+      runAgentLoop({
+        chat: chat as unknown as LoopDeps['chat'],
+        executeTool: async () => 'ok',
+        tools: [],
+        systemPrompt: 's',
+        initialMessages: [{ role: 'user', content: 'hi' }],
+        policy: DEFAULT_POLICY,
+        toolCtx: { profile: 'p', appId: 'a' },
+        signal: ac.signal
+      })
+    ).rejects.toThrow('real LLM outage');
+  });
+
+  it('does not abort when signal is undefined (existing behavior)', async () => {
+    const r = await runAgentLoop(
+      makeDeps({ chat: chatFinal('done') as unknown as LoopDeps['chat'] })
+    );
+    expect(r.stopReason).toBe('final');
   });
 });

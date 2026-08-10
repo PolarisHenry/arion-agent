@@ -52,7 +52,8 @@ export type ChatResult = {
 export async function chat(
   llmConfig: LlmConfig,
   messages: LlmMessage[],
-  tools?: LlmTool[]
+  tools?: LlmTool[],
+  signal?: AbortSignal
 ): Promise<ChatResult> {
   const client = new OpenAI({
     baseURL: llmConfig.baseUrl,
@@ -89,7 +90,7 @@ export async function chat(
     `LLM call: ${llmConfig.modelName}, ${messages.length} msgs, ${tools?.length ?? 0} tools`
   );
 
-  const resp = await client.chat.completions.create(params);
+  const resp = await client.chat.completions.create(params, signal ? { signal } : undefined);
   const choice = resp.choices[0];
 
   if (!choice) {
@@ -140,7 +141,8 @@ export async function streamChat(
   llmConfig: LlmConfig,
   messages: LlmMessage[],
   tools: LlmTool[] | undefined,
-  onToken: (chunk: string) => void
+  onToken: (chunk: string) => void,
+  signal?: AbortSignal
 ): Promise<ChatResult> {
   const client = new OpenAI({
     baseURL: llmConfig.baseUrl,
@@ -184,7 +186,7 @@ export async function streamChat(
     `LLM stream: ${llmConfig.modelName}, ${messages.length} msgs, ${tools?.length ?? 0} tools`
   );
 
-  const stream = await client.chat.completions.create(params);
+  const stream = await client.chat.completions.create(params, signal ? { signal } : undefined);
 
   let content = '';
   let streamUsage: { promptTokens: number; completionTokens: number; totalTokens: number } = {

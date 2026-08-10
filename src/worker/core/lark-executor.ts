@@ -205,7 +205,7 @@ export async function runLarkCli(
 
   let stdout: string;
   try {
-    const r = await exec(config.larkCliPath, full, EXEC_OPTS);
+    const r = await exec(config.larkCliPath, full, { ...EXEC_OPTS, signal: ctx.signal });
     stdout = r.stdout ?? '';
   } catch (err: any) {
     // Nonzero exit: lark-cli wrote the JSON envelope to stderr (or stdout).
@@ -228,7 +228,10 @@ export async function runLarkCli(
     // High-risk write refused without --yes → preview via dry-run, ask the LLM
     // to confirm before re-calling with --yes.
     try {
-      const dry = await exec(config.larkCliPath, [...full, '--dry-run'], EXEC_OPTS);
+      const dry = await exec(config.larkCliPath, [...full, '--dry-run'], {
+        ...EXEC_OPTS,
+        signal: ctx.signal
+      });
       return [
         `[dry-run 预览] 这是高危操作，未真正执行。请把下方预览转达给用户，等用户回复“确认”后，再带 --yes 重调 run_lark_cli。`,
         dry.stdout?.trim() || '(dry-run 无输出)'
@@ -271,7 +274,10 @@ export async function readSkill(
   if (path) skillArgv.push(path);
   const label = `skills read ${name}${path ? ` ${path}` : ''}`;
   try {
-    const r = await exec(config.larkCliPath, buildArgv(skillArgv, ctx), EXEC_OPTS);
+    const r = await exec(config.larkCliPath, buildArgv(skillArgv, ctx), {
+      ...EXEC_OPTS,
+      signal: ctx.signal
+    });
     const failed = interpretIfFailed(r.stdout ?? '', label, ctx);
     if (failed) return failed;
     return r.stdout?.trim() || '(skill 为空)';
@@ -287,7 +293,10 @@ export async function larkSchema(
 ): Promise<string> {
   const label = `schema ${method}`;
   try {
-    const r = await exec(config.larkCliPath, buildArgv(['schema', method], ctx), EXEC_OPTS);
+    const r = await exec(config.larkCliPath, buildArgv(['schema', method], ctx), {
+      ...EXEC_OPTS,
+      signal: ctx.signal
+    });
     const failed = interpretIfFailed(r.stdout ?? '', label, ctx);
     if (failed) return failed;
     return r.stdout?.trim() || '(schema 为空)';

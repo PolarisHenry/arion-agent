@@ -18,6 +18,7 @@ export type ExecFileOptions = {
   maxBuffer?: number;
   encoding?: BufferEncoding;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
 };
 
 export type ExecResult = { stdout: string; stderr: string };
@@ -107,6 +108,36 @@ export function execFileAsync(
         e.killed = true;
         settle(e);
       }, opts.timeout);
+    }
+
+    // /stop support: when the turn's AbortSignal fires, kill the child so a
+    // hung lark-cli call can't outlive the user's patience. Mirrors the
+    // timeout pattern above. Rejects with an AbortError so the agent loop
+    // (which checks signal.aborted) maps it to stopReason 'aborted'.
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          // process may not have started
+        }
+        const e: ExecError = new Error('aborted');
+        e.name = 'AbortError';
+        e.signal = 'SIGTERM';
+        settle(e);
+      } else {
+        opts.signal.addEventListener('abort', () => {
+          try {
+            child.kill('SIGTERM');
+          } catch {
+            // process may have already exited
+          }
+          const e: ExecError = new Error('aborted');
+          e.name = 'AbortError';
+          e.signal = 'SIGTERM';
+          settle(e);
+        });
+      }
     }
 
     // EPIPE is expected if the process exits before draining stdin (e.g. a

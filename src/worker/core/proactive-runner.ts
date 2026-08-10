@@ -160,7 +160,10 @@ export async function runProactiveTurn(args: {
   let finalResponse = loopResult.finalContent;
   let totalTokens = loopResult.totalTokens;
 
-  if (loopResult.stopReason !== 'final') {
+  if (loopResult.stopReason !== 'final' && loopResult.stopReason !== 'aborted') {
+    // 'aborted' can't occur here (proactive turns pass no AbortSignal), but
+    // exclude it for buildWrapUpMessages' type — and an aborted turn would
+    // skip wrap-up anyway, same as the IM path.
     const wrapUpMessages = buildWrapUpMessages(
       systemPrompt,
       loopResult.messages,
