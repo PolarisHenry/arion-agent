@@ -24,7 +24,10 @@ export interface InboundMessage {
   senderIsBot: boolean;
   content: string;
   images?: InboundImage[];
-  replyQuote?: { content: string; images?: InboundImage[] };
+  /** The message this turn quotes/replies to, when the platform carries it
+   *  inline (WeChat: the SDK's quotedMessage). Lark does NOT populate this —
+   *  it references the quote by id and the runtime fetches it separately. */
+  replyQuote?: { content: string; senderName?: string; images?: InboundImage[] };
   /** Platform-native message, carried opaquely for platform-specific
    *  processing the abstraction doesn't yet cover (e.g. Lark image resource
    *  descriptors, replyToMessageId). Adapters may populate this; consumers

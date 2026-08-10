@@ -35,6 +35,35 @@ describe('normalizeWechatMessage', () => {
     const m = normalizeWechatMessage(fakeIncoming());
     expect(m.raw).toBeDefined();
   });
+
+  it('drops replyQuote when there is no quotedMessage', () => {
+    const m = normalizeWechatMessage(fakeIncoming());
+    expect(m.replyQuote).toBeUndefined();
+  });
+
+  it('surfaces a text quote via replyQuote (sender = title, body = text)', () => {
+    const m = normalizeWechatMessage(
+      fakeIncoming({ text: '这个怎么处理', quotedMessage: { title: '张三', text: '原始内容' } })
+    );
+    expect(m.replyQuote).toEqual({ content: '原始内容', senderName: '张三' });
+  });
+
+  it('omits senderName when the quote carries no title', () => {
+    const m = normalizeWechatMessage(fakeIncoming({ quotedMessage: { text: '原始内容' } }));
+    expect(m.replyQuote).toEqual({ content: '原始内容' });
+  });
+
+  it('synthesizes a placeholder for a quoted media message with no text', () => {
+    const m = normalizeWechatMessage(
+      fakeIncoming({ quotedMessage: { title: '李四', type: 'image' } })
+    );
+    expect(m.replyQuote).toEqual({ content: '[图片]', senderName: '李四' });
+  });
+
+  it('drops replyQuote when the quote has neither text nor a known media type', () => {
+    const m = normalizeWechatMessage(fakeIncoming({ quotedMessage: { title: '李四' } }));
+    expect(m.replyQuote).toBeUndefined();
+  });
 });
 
 describe('WeChatChannel', () => {

@@ -419,6 +419,15 @@ export class AgentRuntime {
           const quotedImgs = await downloadQuotedImages(lark, quoted);
           prepared = mergePrepared(prepared, quotedImgs);
         }
+      } else if (msg.replyQuote) {
+        // WeChat: the quoted message rides inline in the SDK payload (no API
+        // fetch, no media pipeline yet) — the adapter already surfaced it via
+        // replyQuote. Same shape as the Lark path so the agent sees what a
+        // "这个" / "上面那条" reply refers to.
+        userText = withQuotedMessage(
+          { content: msg.replyQuote.content, senderName: msg.replyQuote.senderName },
+          msg.content
+        );
       }
 
       // `messages` is the persisted history (system prompt is NOT included).

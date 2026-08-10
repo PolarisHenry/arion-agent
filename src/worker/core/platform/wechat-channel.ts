@@ -10,7 +10,12 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { WeChatBot, type IncomingMessage } from '@wechatbot/wechatbot';
+import {
+  WeChatBot,
+  type IncomingMessage,
+  type QuotedMessage,
+  type MessageContentType
+} from '@wechatbot/wechatbot';
 import type { PlatformChannel, InboundMessage, TypingHandle } from './channel';
 
 /** Per-agent storage dir for the SDK's file backend (credentials, cursor,
@@ -18,6 +23,33 @@ import type { PlatformChannel, InboundMessage, TypingHandle } from './channel';
  *  mirrors the lark-cli keychain pattern. */
 export function storageDirFor(agentId: string): string {
   return join(process.env.WECHATBOT_DATA_DIR ?? `${homedir()}/.wechatbot`, agentId);
+}
+
+/** Placeholder for a quoted media message, which the SDK leaves without
+ *  `text`. Mirrors how the user's own media renders as "[image]" in msg.text
+ *  so the agent at least knows a media message was quoted. */
+function wechatQuotePlaceholder(type?: MessageContentType): string {
+  switch (type) {
+    case 'image':
+      return '[图片]';
+    case 'voice':
+      return '[语音]';
+    case 'file':
+      return '[文件]';
+    case 'video':
+      return '[视频]';
+    default:
+      return '';
+  }
+}
+
+/** Map the SDK's inline quoted message onto replyQuote. WeChat carries the
+ *  quoted body in the event payload itself (title = the quoted sender's
+ *  display name, text = body), so — unlike Lark — no API fetch is needed. */
+function wechatReplyQuote(q: QuotedMessage): InboundMessage['replyQuote'] | undefined {
+  const content = (q.text ?? '').trim() || wechatQuotePlaceholder(q.type);
+  if (!content) return undefined;
+  return { content, senderName: q.title };
 }
 
 /** Map the SDK's IncomingMessage into our platform-agnostic InboundMessage.
@@ -34,6 +66,7 @@ export function normalizeWechatMessage(msg: IncomingMessage): InboundMessage {
     // v1: WeChat image ingest is not wired (the runtime's image pipeline is
     // Lark-specific). msg.text already carries "[image]" for media, so the
     // agent at least knows an image arrived. Full media ingest = follow-up.
+    replyQuote: msg.quotedMessage ? wechatReplyQuote(msg.quotedMessage) : undefined,
     raw: msg
   };
 }
