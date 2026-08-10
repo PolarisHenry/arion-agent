@@ -59,6 +59,14 @@ export function localizeApiError(
   if (m) {
     return t('No permission for action').replace('{action}', t(m[1]));
   }
+  // Referential-delete conflict — server returns `in_use:<count>` (see the
+  // DELETE pre-check in /api/llm-models/[id]/route.ts). Format a message that
+  // tells the user how many agents block the delete, same channel as the
+  // permission prefix.
+  const usage = message.match(/^in_use:(\d+)$/);
+  if (usage) {
+    return t('Resource in use').replace('{count}', usage[1]);
+  }
   return t(message);
 }
 

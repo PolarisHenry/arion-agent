@@ -13,6 +13,7 @@ This is a Next.js 16 + shadcn/ui admin dashboard starter kit.
 
 - **React Query** for all data fetching — `void prefetchQuery()` on server + `useSuspenseQuery` on client (standard TanStack pattern), `useMutation` for forms, `HydrationBoundary` + `dehydrate` for hydration, `<Suspense fallback>` for streaming
 - **API layer** per feature — `api/types.ts` → `api/service.ts` → `api/queries.ts`; queries use key factories (`entityKeys.all/list/detail`); components import from service and queries, never from mock APIs directly
+- **Referential deletes** — a DELETE on an entity referenced via a NO-ACTION FK (e.g. `agent.llmModelId` → `llmModel`) must `count` referencing rows first and return `409 { error: 'in_use:<n>' }` (`localizeApiError` formats it); never let the FK violation fall through to the generic `500 { error: 'Failed' }`. CASCADE/leaf tables are exempt.
 - **nuqs** for URL search params — `searchParamsCache` on server, `useQueryStates` on client, use `getSortingStateParser` for sort (same parser as `useDataTable`)
 - **Icons** — only import from `@/components/icons`, never from `@tabler/icons-react` directly
 - **Forms** — use `useAppForm` + `useFormFields<T>()` from `@/components/ui/tanstack-form`

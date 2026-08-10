@@ -122,6 +122,23 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
     const [row] = await db.select().from(llmModel).where(eq(llmModel.id, id)).limit(1);
     const denied = assertTenant(row, tenantId);
     if (denied) return denied;
+    // Referential pre-check: agent.llmModelId is a NOT NULL FK with no
+    // onDelete (NO ACTION), so deleting a model some agent uses would hit a
+    // FK violation and fall through to the generic 500 below — leaving the
+    // UI with a useless 'Failed'. Surface a specific 409 carrying the count
+    // (encoded in the error string so localizeApiError can format a message,
+    // mirroring the 'Missing permission:' channel) and the blocker names so
+    // the user knows which employees to reassign first.
+    const blockers = await db
+      .select({ id: agent.id, name: agent.name })
+      .from(agent)
+      .where(and(eq(agent.llmModelId, id), eq(agent.ownerId, tenantId)));
+    if (blockers.length > 0) {
+      return NextResponse.json(
+        { error: `in_use:${blockers.length}`, count: blockers.length, agents: blockers },
+        { status: 409 }
+      );
+    }
     await db.delete(llmModel).where(eq(llmModel.id, id));
     return NextResponse.json({ deleted: true });
   } catch (e) {

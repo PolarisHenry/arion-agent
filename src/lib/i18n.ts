@@ -494,6 +494,8 @@ export const translations = {
     Failed: 'Failed',
     'No role assigned': 'No role assigned',
     'No permission for action': 'You do not have permission to "{action}".',
+    'Resource in use':
+      'This is used by {count} digital employee(s). Reassign them before deleting.',
     'Change Password': 'Change Password',
     'Update your account password.': 'Update your account password.',
     'Current Password': 'Current Password',
@@ -1472,6 +1474,7 @@ export const translations = {
     Failed: '操作失败',
     'No role assigned': '未分配角色',
     'No permission for action': '没有「{action}」的权限',
+    'Resource in use': '该资源正被 {count} 个数字员工使用，请先解除引用后再删除。',
     'Change Password': '修改密码',
     'Update your account password.': '更新你的账号密码。',
     'Current Password': '当前密码',
