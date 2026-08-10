@@ -11,23 +11,15 @@
 import { config } from '../config';
 import { buildLarkGuide, type ExecFn } from './lark-guide';
 
-// Build a "current time" context string in the configured timezone, appended to
-// the system prompt so the model knows the real today/year for relative-time
-// requests (e.g. "创建明天的日程" — without this, models default to their
-// training cutoff year and put events in the wrong year).
-function buildCurrentTimeContext(): string {
-  const tz = config.agentTimezone;
-  const now = new Date();
+// Format a Date in the configured tz as { date: '2026-08-10', weekday: '周一' }.
+function tzParts(date: Date, tz: string) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).formatToParts(now);
+    weekday: 'short'
+  }).formatToParts(date);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
   const wdMap: Record<string, string> = {
     Mon: '周一',
@@ -38,11 +30,52 @@ function buildCurrentTimeContext(): string {
     Sat: '周六',
     Sun: '周日'
   };
-  const weekday = wdMap[get('weekday')] ?? get('weekday');
-  // Intl may emit "24" for midnight with hour12:false — normalize to "00".
-  const hour = get('hour') === '24' ? '00' : get('hour');
-  const stamp = `${get('year')}-${get('month')}-${get('day')} ${weekday} ${hour}:${get('minute')}`;
-  return `\n\n## 当前时间\n当前时间是 ${stamp}（${tz}）。处理“今天/明天/本周/下周/这个月”等相对时间时，请严格以当前时间为准，不要使用记忆中的旧日期。`;
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    weekday: wdMap[get('weekday')] ?? get('weekday')
+  };
+}
+
+// Build a "current time" context block, appended to the system prompt. The
+// model is told the real today (not its training cutoff) for relative-time
+// requests. We PRE-COMPUTE today / tomorrow / day-after / yesterday so the
+// model doesn't have to do date arithmetic itself — that step is exactly where
+// weak models (e.g. DeepSeek Flash) anchor on a stale date from conversation
+// history instead of the injected time. Stating "明天 = 2026-08-11" removes
+// the arithmetic and the anchoring in one shot. Placed at the END of the
+// system prompt so it's the last thing the model reads before the history.
+function buildCurrentTimeContext(): string {
+  const tz = config.agentTimezone;
+  const now = new Date();
+  const today = tzParts(now, tz);
+  const tomorrow = tzParts(new Date(now.getTime() + 86_400_000), tz);
+  const dayAfter = tzParts(new Date(now.getTime() + 2 * 86_400_000), tz);
+  const yesterday = tzParts(new Date(now.getTime() - 86_400_000), tz);
+  // Clock stamp (for "现在几点" style requests).
+  const clockParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(now);
+  const hour =
+    (clockParts.find((p) => p.type === 'hour')?.value ?? '0') === '24'
+      ? '00'
+      : (clockParts.find((p) => p.type === 'hour')?.value ?? '0');
+  const minute = clockParts.find((p) => p.type === 'minute')?.value ?? '0';
+  return [
+    '',
+    '## 当前时间（日期锚点 — 以此为准，不要用对话历史里的旧日期）',
+    `当前时间：${today.date} ${today.weekday} ${hour}:${minute}（${tz}）`,
+    '',
+    '⚠️ 用户说"今天 / 明天 / 后天 / 昨天 / 本周 / 下周 / X 号"时，必须用下面这些日期，绝不要用对话历史里出现过的旧日期，也绝不要自己推算：',
+    `- 今天 = ${today.date}（${today.weekday}）`,
+    `- 明天 = ${tomorrow.date}（${tomorrow.weekday}）`,
+    `- 后天 = ${dayAfter.date}（${dayAfter.weekday}）`,
+    `- 昨天 = ${yesterday.date}（${yesterday.weekday}）`,
+    '',
+    `例：当前是 ${today.date}，用户说"明天的提醒" → 日期填 ${tomorrow.date}，不是历史里出现过的任何其他日期。`
+  ].join('\n');
 }
 
 // Agent tool-use discipline, appended to every system prompt so digital
@@ -132,12 +165,7 @@ export async function buildSystemPrompt(
 ): Promise<string> {
   const feishuLinked = opts?.feishuLinked !== false; // default true
   const larkGuide = feishuLinked ? await buildLarkGuide(exec) : '';
-  let prompt =
-    systemPrompt +
-    larkGuide +
-    buildCurrentTimeContext() +
-    buildToolDiscipline() +
-    buildSkillRules();
+  let prompt = systemPrompt + larkGuide + buildToolDiscipline() + buildSkillRules();
   if (opts?.skillSection) {
     prompt += opts.skillSection;
   }
@@ -147,5 +175,10 @@ export async function buildSystemPrompt(
   if (opts?.triggeredRun) {
     prompt += buildTriggeredRunContext(opts.triggeredRun.targetChatId);
   }
+  // Time anchor LAST — closest to the conversation history, so it's the freshest
+  // date signal when the model resolves "今天/明天" in the latest user message.
+  // Weak models (DeepSeek Flash) anchor on stale history dates if this is buried
+  // mid-prompt; placing it at the end + pre-computing relatives counters that.
+  prompt += buildCurrentTimeContext();
   return prompt;
 }

@@ -29,6 +29,22 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('以 bot 身份代发');
   });
 
+  it('precomputes the date anchor (today/tomorrow/day-after/yesterday) and places it last', async () => {
+    vi.resetModules();
+    const { buildSystemPrompt } = await import('./agent-prompt');
+    const prompt = await buildSystemPrompt('你是助手。', undefined, fakeExec as any);
+    // Precomputed relatives — the model doesn't have to do date arithmetic.
+    expect(prompt).toMatch(/今天 = \d{4}-\d{2}-\d{2}（周[一二三四五六日]）/);
+    expect(prompt).toMatch(/明天 = \d{4}-\d{2}-\d{2}（周[一二三四五六日]）/);
+    expect(prompt).toMatch(/后天 = \d{4}-\d{2}-\d{2}（周[一二三四五六日]）/);
+    expect(prompt).toMatch(/昨天 = \d{4}-\d{2}-\d{2}（周[一二三四五六日]）/);
+    // Time anchor is the LAST section (after tool discipline) so it's the
+    // freshest date signal before the conversation history.
+    expect(prompt.lastIndexOf('## 当前时间')).toBeGreaterThan(
+      prompt.lastIndexOf('工具使用与任务完成纪律')
+    );
+  });
+
   it('skips lark guide when feishuLinked is false', async () => {
     vi.resetModules();
     const { buildSystemPrompt } = await import('./agent-prompt');
