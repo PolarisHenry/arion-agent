@@ -6,8 +6,13 @@ export async function getAgents(
   opts: ApiFetchOptions = {}
 ): Promise<AgentsResponse> {
   const params = new URLSearchParams();
+  // `limit: 0` is a valid value meaning "no pagination / return all" (the
+  // server treats limit=0 as all). Use an explicit null/undefined check so 0
+  // is sent through; a truthy check would silently swallow it and the server
+  // would fall back to its default page size, dropping agents the dropdown
+  // needs to resolve linked-agent names.
   if (filters.page) params.set('page', String(filters.page));
-  if (filters.limit) params.set('limit', String(filters.limit));
+  if (filters.limit != null) params.set('limit', String(filters.limit));
   if (filters.search) params.set('search', filters.search);
   if (filters.sort) params.set('sort', filters.sort);
   if (filters.order) params.set('order', filters.order);

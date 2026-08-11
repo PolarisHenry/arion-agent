@@ -6,8 +6,11 @@ export async function getLlmModels(
   opts: ApiFetchOptions = {}
 ): Promise<LlmModelsResponse> {
   const params = new URLSearchParams();
+  // `limit: 0` means "no pagination / return all" on the server — send it
+  // through explicitly; a truthy check would swallow 0 and the server would
+  // fall back to its default page size, dropping models the dropdown needs.
   if (filters.page) params.set('page', String(filters.page));
-  if (filters.limit) params.set('limit', String(filters.limit));
+  if (filters.limit != null) params.set('limit', String(filters.limit));
   if (filters.search) params.set('search', filters.search);
   if (filters.sort) params.set('sort', filters.sort);
   if (filters.order) params.set('order', filters.order);
