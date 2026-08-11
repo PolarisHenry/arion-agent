@@ -1,0 +1,1 @@
+ALTER TABLE "agent_user_auth" ADD COLUMN "device_code_expires_at" timestamp with time zone;

@@ -16,6 +16,7 @@ import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import type { LarkChannel, NormalizedMessage, ResourceDescriptor } from '@larksuite/channel';
+import type { WeChatBot, IncomingMessage } from '@wechatbot/wechatbot';
 import type { ContentBlock, LlmMessage } from './llm';
 import { createLogger } from './logger';
 
@@ -58,7 +59,75 @@ export async function downloadAndPrepareImages(
 }
 
 /**
- * Download images attached to a REPLY-QUOTED message (引用图) — same pipeline
+ * WeChat image ingest — same output shape as {@link downloadAndPrepareImages}
+ * (PreparedImages: resized image_url blocks + temp-file originals) but driven
+ * by the @wechatbot/wechatbot SDK, which owns the AES-128-ECB CDN decryption.
+ * For each ImageContent on the message: `bot.downloadRaw(media, aeskey)` →
+ * Buffer → write original to temp + build a resized embed block. Best-effort
+ * per image (failures logged + skipped), never throws — mirrors the Lark path.
+ *
+ * NOTE: only the user's OWN attached images are ingested. Quoted images are
+ * NOT — the SDK's quotedMessage carries only {title?, text?, type?}, not the
+ * CDNMedia/aeskey refs needed to download them, so a quoted image stays as the
+ * "[图片]" placeholder the adapter already set. That's an SDK limitation, not
+ * something this layer can work around.
+ */
+export async function downloadAndPrepareWechatImages(
+  bot: WeChatBot,
+  msg: IncomingMessage
+): Promise<PreparedImages | null> {
+  const images = (msg.images ?? []).slice(0, MAX_IMAGES);
+  if (images.length === 0) return null;
+
+  await mkdir(TEMP_DIR, { recursive: true }).catch(() => {
+    /* ignore — best-effort; per-file writes surface real errors below */
+  });
+
+  const imageBlocks: ContentBlock[] = [];
+  const tempPaths: string[] = [];
+  const label = String(
+    (msg.raw as { message_id?: number | string } | undefined)?.message_id ?? msg.userId
+  );
+
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    if (!img) continue;
+    try {
+      // Prefer the CDN media ref (AES-decrypted by the SDK); fall back to a
+      // direct URL if that's all the message carried.
+      let buffer: Buffer;
+      if (img.media) {
+        buffer = await bot.downloadRaw(img.media, img.aeskey);
+      } else if (img.url) {
+        buffer = await fetchUrlToBuffer(img.url);
+      } else {
+        continue;
+      }
+      // WeChat CDN images are overwhelmingly JPEG; sharp will re-encode for
+      // the embed regardless, and mimeToExt defaults to jpg.
+      const mime = 'image/jpeg';
+      const tempPath = path.join(TEMP_DIR, `wechat-${label}-${i}.${mimeToExt(mime)}`);
+      await writeFile(tempPath, buffer);
+      tempPaths.push(tempPath);
+      imageBlocks.push(await prepareEmbedBlock(buffer, mime));
+    } catch (err: any) {
+      log.warn(`wechat: failed to prepare image ${i} (label=${label}): ${err?.message ?? err}`);
+    }
+  }
+
+  if (imageBlocks.length === 0) return null;
+  return { imageBlocks, tempPaths };
+}
+
+/** Fetch a direct image URL to a Buffer. Used only when an ImageContent has
+ *  no CDN media ref (rare). Best-effort. */
+async function fetchUrlToBuffer(url: string): Promise<Buffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`image fetch HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** Download images attached to a REPLY-QUOTED message (引用图) — same pipeline
  * as the current message's images, so the agent can read media the user is
  * replying to ("这张图里是啥"). Does NOT cap on its own: the caller merges it
  * with the current message's images via {@link mergePrepared}, so both share

@@ -9,7 +9,8 @@ export type UserAuthStatus =
   | 'authorized'
   | 'revoking'
   | 'revoked'
-  | 'error';
+  | 'error'
+  | 'incremental_awaiting';
 
 export type AgentUserAuth = {
   id: string;

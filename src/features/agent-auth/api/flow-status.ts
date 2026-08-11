@@ -8,7 +8,8 @@ const FLOW_ACTIVE_STATUSES: ReadonlySet<UserAuthStatus> = new Set([
   'pending_start',
   'awaiting_user',
   'completing',
-  'revoking'
+  'revoking',
+  'incremental_awaiting'
 ]);
 
 export function isUserAuthFlowActive(status: UserAuthStatus | null | undefined): boolean {

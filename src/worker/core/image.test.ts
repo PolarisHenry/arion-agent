@@ -5,6 +5,7 @@ import {
   stripImagesForPersist,
   isVisionRejection,
   downloadAndPrepareImages,
+  downloadAndPrepareWechatImages,
   downloadQuotedImages,
   mergePrepared,
   cleanupTempPaths,
@@ -14,6 +15,7 @@ import {
 } from './image';
 import type { LlmMessage } from './llm';
 import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
+import type { WeChatBot, IncomingMessage } from '@wechatbot/wechatbot';
 
 // 1x1 transparent PNG — a real image sharp can actually process.
 const TINY_PNG = Buffer.from(
@@ -334,5 +336,76 @@ describe('mergePrepared', () => {
     expect(out!.tempPaths).toHaveLength(4);
     // all 3 current kept + only 1 quoted fills the 4-image budget
     expect(url(out!.imageBlocks[3] as any)).toBe('data:image/jpeg;base64,quo0');
+  });
+});
+
+// -----------------------------------------------------------
+// downloadAndPrepareWechatImages
+// -----------------------------------------------------------
+
+function mockWeChatBot(downloadRaw: (media: any, aeskey?: string) => Promise<Buffer>): WeChatBot {
+  return { downloadRaw } as unknown as WeChatBot;
+}
+
+function wechatMsgWithImages(n: number): IncomingMessage {
+  const images = Array.from({ length: n }, (_, i) => ({
+    media: { file_id: `cdn-${i}` },
+    aeskey: `key-${i}`
+  }));
+  return {
+    userId: 'ou_x@im.wechat',
+    images,
+    raw: { message_id: 999 }
+  } as unknown as IncomingMessage;
+}
+
+describe('downloadAndPrepareWechatImages', () => {
+  it('returns null when there are no images', async () => {
+    const bot = mockWeChatBot(async () => TINY_PNG);
+    const msg = { userId: 'u', images: [], raw: { message_id: 1 } } as unknown as IncomingMessage;
+    expect(await downloadAndPrepareWechatImages(bot, msg)).toBeNull();
+  });
+
+  it('downloads each image via bot.downloadRaw(media, aeskey) and builds embed blocks', async () => {
+    const calls: string[] = [];
+    const bot = mockWeChatBot(async (media: any, aeskey?: string) => {
+      calls.push(`${media.file_id}/${aeskey}`);
+      return TINY_PNG;
+    });
+    const out = await downloadAndPrepareWechatImages(bot, wechatMsgWithImages(2));
+    expect(out).not.toBeNull();
+    expect(out!.imageBlocks).toHaveLength(2);
+    expect(out!.tempPaths).toHaveLength(2);
+    expect(calls).toEqual(['cdn-0/key-0', 'cdn-1/key-1']);
+    // embed blocks are data URLs
+    expect((out!.imageBlocks[0] as any).image_url.url).toMatch(/^data:image\//);
+    // temp files written
+    expect(out!.tempPaths.every((p) => existsSync(p))).toBe(true);
+    await cleanupTempPaths(out!.tempPaths);
+  });
+
+  it('skips a failed download but keeps the rest (best-effort)', async () => {
+    const bot = mockWeChatBot(async (media: any) => {
+      if (media.file_id === 'cdn-1') throw new Error('cdn down');
+      return TINY_PNG;
+    });
+    const out = await downloadAndPrepareWechatImages(bot, wechatMsgWithImages(3));
+    expect(out).not.toBeNull();
+    expect(out!.imageBlocks).toHaveLength(2);
+    await cleanupTempPaths(out!.tempPaths);
+  });
+
+  it('caps at MAX_IMAGES', async () => {
+    const bot = mockWeChatBot(async () => TINY_PNG);
+    const out = await downloadAndPrepareWechatImages(bot, wechatMsgWithImages(MAX_IMAGES + 2));
+    expect(out!.imageBlocks).toHaveLength(MAX_IMAGES);
+    await cleanupTempPaths(out!.tempPaths);
+  });
+
+  it('returns null when every download fails', async () => {
+    const bot = mockWeChatBot(async () => {
+      throw new Error('total outage');
+    });
+    expect(await downloadAndPrepareWechatImages(bot, wechatMsgWithImages(2))).toBeNull();
   });
 });

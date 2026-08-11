@@ -6,6 +6,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { execFileAsync } from './exec';
 import { homedir } from 'node:os';
 import type { NormalizedMessage } from '@larksuite/channel';
+import type { IncomingMessage } from '@wechatbot/wechatbot';
 import { createChannel } from './platform/factory';
 import { LarkChannelAdapter } from './platform/lark-channel-adapter';
 import { WeChatChannel } from './platform/wechat-channel';
@@ -25,6 +26,7 @@ import {
 } from './agent-loop';
 import {
   downloadAndPrepareImages,
+  downloadAndPrepareWechatImages,
   downloadQuotedImages,
   mergePrepared,
   buildImageUserMessage,
@@ -193,13 +195,20 @@ export class AgentRuntime {
     // Check user OAuth status
     await this.refreshUserAuthStatus();
 
-    this.channel.onMessage(async (msg: InboundMessage) => {
-      try {
-        await this.handleMessage(msg);
-      } catch (err: any) {
+    // Fire-and-forget: do NOT await handleMessage. The Lark SDK's ChatPipeline
+    // awaits this callback and serializes per-chatId dispatchHandlers on a tail
+    // promise chain — if we await handleTurn here, the SDK won't deliver the
+    // NEXT message (including /stop) until this turn finishes, so /stop could
+    // never preempt an in-flight turn. Returning immediately lets the SDK
+    // advance and hand /stop to handleMessage while handleTurn is still running
+    // in the background (the AbortController is still in the `aborts` map).
+    // ChatSerializer still serializes normal turns per-chatId; /stop bypasses
+    // it by design. Errors are caught here so they never crash the channel.
+    this.channel.onMessage((msg: InboundMessage) => {
+      this.handleMessage(msg).catch((err: any) => {
         log.error(`message handler error: ${err?.message ?? err}`);
         // Don't crash the channel connection
-      }
+      });
     });
 
     this.channel.onError((err: any) => {
@@ -437,9 +446,11 @@ export class AgentRuntime {
       });
       const sessionHistory = await this.sessionMgr.load(chatId, chatType);
 
-      // Image + quote ingest are Lark-specific (resource descriptors +
-      // fetchMessage). Gated by platform — WeChat (T8) handles media via its
-      // own adapter path. Phase A only runs the Lark branch.
+      // Image + quote ingest. Lark resolves both via API (resource descriptors +
+      // fetchMessage); WeChat's SDK carries the user's own images inline (AES
+      // decryption handled by bot.downloadRaw) and the quoted body inline — no
+      // API fetch. Quoted IMAGES stay as the "[图片]" placeholder the adapter
+      // set, because the SDK's quotedMessage doesn't expose their CDNMedia/aeskey.
       if (this.channel instanceof LarkChannelAdapter) {
         const lark = this.channel.raw;
         const larkMsg = (msg.raw ?? undefined) as NormalizedMessage | undefined;
@@ -463,15 +474,20 @@ export class AgentRuntime {
           const quotedImgs = await downloadQuotedImages(lark, quoted);
           prepared = mergePrepared(prepared, quotedImgs);
         }
-      } else if (msg.replyQuote) {
-        // WeChat: the quoted message rides inline in the SDK payload (no API
-        // fetch, no media pipeline yet) — the adapter already surfaced it via
-        // replyQuote. Same shape as the Lark path so the agent sees what a
-        // "这个" / "上面那条" reply refers to.
-        userText = withQuotedMessage(
-          { content: msg.replyQuote.content, senderName: msg.replyQuote.senderName },
-          msg.content
-        );
+      } else if (this.channel instanceof WeChatChannel) {
+        // Download the user's own attached images (SDK decrypts the CDN bytes;
+        // we resize + embed + temp-file, same as Lark). Sets `prepared` so the
+        // shared buildImageUserMessage below feeds them to the model.
+        const wechatMsg = (msg.raw ?? undefined) as IncomingMessage | undefined;
+        if (wechatMsg) prepared = await downloadAndPrepareWechatImages(this.channel.raw, wechatMsg);
+
+        // Quoted body rides inline via replyQuote (text + sender). No fetch.
+        if (msg.replyQuote) {
+          userText = withQuotedMessage(
+            { content: msg.replyQuote.content, senderName: msg.replyQuote.senderName },
+            msg.content
+          );
+        }
       }
 
       // `messages` is the persisted history (system prompt is NOT included).

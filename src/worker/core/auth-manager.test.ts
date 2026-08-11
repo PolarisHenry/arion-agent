@@ -136,7 +136,7 @@ describe('AuthManager.startIncrementalAuth', () => {
   });
 
   it('reuses the in-flight incremental flow (no new auth login) when not expired', async () => {
-    // Existing auth row is mid-incremental-flow with a future tokenExpiresAt —
+    // Existing auth row is mid-incremental-flow with a future deviceCodeExpiresAt —
     // a repeated missing_scope trigger must return the SAME link and NOT spawn
     // a fresh device flow that would invalidate it.
     const future = new Date(Date.now() + 5 * 60 * 1000);
@@ -144,7 +144,7 @@ describe('AuthManager.startIncrementalAuth', () => {
       {
         status: 'incremental_awaiting',
         verificationUrl: 'https://feishu/existing',
-        tokenExpiresAt: future
+        deviceCodeExpiresAt: future
       }
     ]);
     const execSpy = vi.fn();
@@ -156,14 +156,14 @@ describe('AuthManager.startIncrementalAuth', () => {
   });
 
   it('issues a new flow when the in-flight incremental row is expired', async () => {
-    // tokenExpiresAt in the past → the stale flow is unusable, so a new
+    // deviceCodeExpiresAt in the past → the stale flow is unusable, so a new
     // `auth login --scope ... --no-wait` must be issued.
     const past = new Date(Date.now() - 60 * 1000);
     setupSelect(AGENT_ROWS, [
       {
         status: 'incremental_awaiting',
         verificationUrl: 'https://feishu/stale',
-        tokenExpiresAt: past
+        deviceCodeExpiresAt: past
       }
     ]);
     (execFile as any).mockImplementation((_bin: string, args: string[], _opts: any, cb: any) => {
@@ -185,6 +185,40 @@ describe('AuthManager.startIncrementalAuth', () => {
     const r = await mgr.startIncrementalAuth('a1', ['calendar:calendar.event:read']);
     expect(r?.verificationUrl).toBe('https://feishu/fresh');
     expect(execFile).toHaveBeenCalled();
+  });
+
+  it('writes device-code expiry to deviceCodeExpiresAt, NOT tokenExpiresAt (regression)', async () => {
+    // Bug: startIncrementalAuth used to store the device-code expiry in
+    // tokenExpiresAt, overwriting the base OAuth token's real expiry. On a
+    // rolled-back incremental flow that value wasn't restored → the UI showed
+    // a false "授权过期" and the re-auth start route then wiped the whole row.
+    // The device-code expiry now lives in its own column; tokenExpiresAt (the
+    // base token's expiry) must NOT be touched by this update at all.
+    setupSelect(AGENT_ROWS, [
+      { status: 'authorized', tokenExpiresAt: new Date('2027-01-01T00:00:00Z') }
+    ]);
+    const setSpy = vi.fn();
+    (workerDb.update as any).mockReturnValue({
+      set: setSpy.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+    });
+    (execFile as any).mockImplementation((_b: string, _a: string[], _o: any, cb: any) =>
+      cb(null, {
+        stdout: JSON.stringify({
+          device_code: 'dc',
+          verification_url: 'https://x',
+          expires_in: 600
+        }),
+        stderr: ''
+      })
+    );
+    const mgr = new AuthManager();
+    await mgr.startIncrementalAuth('a1', ['calendar:calendar.event:read']);
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    const fields = setSpy.mock.calls[0][0];
+    expect(fields.status).toBe('incremental_awaiting');
+    expect(fields.deviceCodeExpiresAt).toBeInstanceOf(Date);
+    // Must NOT touch the base OAuth token's expiry here.
+    expect(fields).not.toHaveProperty('tokenExpiresAt');
   });
 });
 

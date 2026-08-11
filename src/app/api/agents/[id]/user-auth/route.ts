@@ -112,6 +112,15 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ success: true });
       }
 
+      if (existing?.status === 'incremental_awaiting') {
+        // An incremental scope-grant is in flight (base auth still valid).
+        // Do NOT fall through to the reset — that would wipe userOpenId /
+        // grantedScopes / tokenExpiresAt and kill the agent's --as user
+        // capability just because the user opened the auth dialog while a
+        // scope top-up was pending. Return the existing URL instead.
+        return NextResponse.json({ success: true });
+      }
+
       if (existing) {
         // Row exists from a prior revoked/error/expired cycle — reset in place
         await db

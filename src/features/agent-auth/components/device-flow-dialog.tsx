@@ -67,7 +67,12 @@ export function DeviceFlowDialog({
   useEffect(() => {
     if (!open || startInitiated.current) return;
     const status = auth?.status;
-    if (status === 'awaiting_user' || status === 'pending_start' || status === 'completing') {
+    if (
+      status === 'awaiting_user' ||
+      status === 'pending_start' ||
+      status === 'completing' ||
+      status === 'incremental_awaiting'
+    ) {
       return; // a flow is already live or starting — just observe it
     }
     startInitiated.current = true;

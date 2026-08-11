@@ -341,6 +341,11 @@ export const agentUserAuth = pgTable(
     status: text('status').notNull().default('pending_start'),
     deviceCode: text('device_code'),
     verificationUrl: text('verification_url'),
+    /** Expiry of the INCREMENTAL device code (the `expires_in` from
+     *  `auth login --scope ... --no-wait`), NOT the OAuth token's expiry.
+     *  Separate from tokenExpiresAt so an expired/rolled-back incremental
+     *  flow can't make the (still-valid) base token look expired. */
+    deviceCodeExpiresAt: timestamp('device_code_expires_at', { mode: 'date', withTimezone: true }),
     userOpenId: text('user_open_id'),
     userName: text('user_name'),
     grantedScopes: jsonb('granted_scopes'),

@@ -71,6 +71,13 @@
       "when": 1786071239490,
       "tag": "0009_futuristic_puck",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786411741217,
+      "tag": "0010_goofy_infant_terrible",
+      "breakpoints": true
     }
   ]
 }

@@ -119,8 +119,8 @@ export class AuthManager {
     const stillValid =
       existing?.status === 'incremental_awaiting' &&
       existing.verificationUrl &&
-      existing.tokenExpiresAt &&
-      existing.tokenExpiresAt > new Date();
+      existing.deviceCodeExpiresAt &&
+      existing.deviceCodeExpiresAt > new Date();
     if (stillValid) {
       log.info(`reusing in-flight incremental auth for agent ${agentId} (not starting a new flow)`);
       return { verificationUrl: existing.verificationUrl! };
@@ -157,7 +157,12 @@ export class AuthManager {
           status: 'incremental_awaiting',
           deviceCode,
           verificationUrl,
-          tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
+          // Device-code expiry lives in its OWN column — must NOT overwrite
+          // tokenExpiresAt, which holds the base OAuth token's expiry. Earlier
+          // this reused tokenExpiresAt, so a rolled-back incremental flow left
+          // the (still-valid) base token looking expired → UI showed "授权过期"
+          // and the re-auth start route then wiped the whole row.
+          deviceCodeExpiresAt: new Date(Date.now() + expiresIn * 1000),
           errorMsg: null
         })
         .where(eq(agentSchema.agentUserAuth.agentId, agentId));
@@ -303,6 +308,7 @@ export class AuthManager {
           tokenExpiresAt,
           deviceCode: null,
           verificationUrl: null,
+          deviceCodeExpiresAt: null,
           errorMsg: null
         })
         .where(eq(agentSchema.agentUserAuth.id, row.id));
@@ -361,6 +367,7 @@ export class AuthManager {
             status: 'authorized',
             deviceCode: null,
             verificationUrl: null,
+            deviceCodeExpiresAt: null,
             errorMsg: errMsg
           })
           .where(eq(agentSchema.agentUserAuth.id, row.id));
@@ -448,6 +455,7 @@ export class AuthManager {
           tokenExpiresAt,
           deviceCode: null,
           verificationUrl: null,
+          deviceCodeExpiresAt: null,
           errorMsg: null
         })
         .where(eq(agentSchema.agentUserAuth.id, row.id));
