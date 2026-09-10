@@ -1,5 +1,5 @@
 // 命令面板「计算结果 / 时间转换」增强的纯函数。
-// 识别规则移植自 wjerp-plugin 的 useCommandPalette.ts，保持一致体验。
+// 识别规则与旧系统命令面板（useCommandPalette）保持一致体验。
 
 /** 是否像一个数学表达式：含数字、含运算符、且整体仅由合法字符构成。 */
 export function isMathExpression(q: string): boolean {
