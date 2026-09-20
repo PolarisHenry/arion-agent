@@ -71,27 +71,19 @@ export async function runProactiveTurn(args: {
     .limit(1);
   if (!llmRow) throw new Error('llm model not found');
 
-  // Determine whether this agent may make `--as user` calls. Same derivation
-  // as agent-runtime.refreshUserAuthStatus: status 'authorized' OR
-  // 'incremental_awaiting' (the old token still works for its existing scopes
-  // while a new one is being added, so --as user must NOT be short-circuited
-  // mid-flow). Without this, executeTool's reactive-auth guard blocks every
-  // retried `--as user` call on the replay path — right after onAuthorized,
-  // when the agent is definitionally authorized — so the LLM gets a "需要用户
-  // 授权" message and markRetry('done') records a false success. Deriving
-  // asUser here (instead of via toolCtxExtras) also fixes the trigger path,
-  // whose authHooks were previously inert for --as user calls.
-  const [authRow] = await workerDb
-    .select()
-    .from(agentSchema.agentUserAuth)
-    .where(eq(agentSchema.agentUserAuth.agentId, args.agentId))
-    .limit(1);
-  const asUser = authRow?.status === 'authorized' || authRow?.status === 'incremental_awaiting';
-
-  // Resolve whether this agent has a Feishu operational identity. For WeChat
-  // agents it's only true when linked to a Feishu agent (linkedAgentId pointing
-  // at a live Lark agent whose appId is set). Own platform='wechat' with no
-  // appId → false. Mirrors AgentRuntime.resolveFeishuSource().
+  // Resolve this agent's Feishu operational identity — mirrors
+  // AgentRuntime.resolveFeishuSource(). For a WeChat agent linked to a Lark
+  // agent, lark tools must run under the LINKED agent's profile/appId (single
+  // source of truth, no copied creds; the WeChat agent's own `agent-<id>`
+  // profile is never provisioned in lark-cli, since it has no appId of its
+  // own). Passing the agent's own larkCliProfile here made every scheduled
+  // lark-cli call fail with `profile "agent-…" not found` while interactive
+  // turns worked fine, because the message path passes this.feishuProfile —
+  // the resolved linked identity — into the same toolCtx.
+  let feishuProfile = agentRow.larkCliProfile;
+  let feishuAppId = agentRow.appId;
+  // The identity under which user-auth status is tracked (own vs linked).
+  let feishuAgentId = agentRow.id;
   let feishuLinked = agentRow.appId ? true : false;
   if (agentRow.platform === 'wechat' && agentRow.linkedAgentId) {
     const [linked] = await workerDb
@@ -100,7 +92,30 @@ export async function runProactiveTurn(args: {
       .where(eq(agentSchema.agent.id, agentRow.linkedAgentId))
       .limit(1);
     feishuLinked = Boolean(linked && (linked.platform ?? 'lark') === 'lark' && linked.appId);
+    if (feishuLinked) {
+      feishuProfile = linked.larkCliProfile;
+      feishuAppId = linked.appId;
+      feishuAgentId = linked.id;
+    }
   }
+
+  // Determine whether this agent may make `--as user` calls. Same derivation
+  // as agent-runtime.refreshUserAuthStatus (which queries by feishuAgentId):
+  // status 'authorized' OR 'incremental_awaiting' (the old token still works
+  // for its existing scopes while a new one is being added, so --as user must
+  // NOT be short-circuited mid-flow). Without this, executeTool's
+  // reactive-auth guard blocks every retried `--as user` call on the replay
+  // path — right after onAuthorized, when the agent is definitionally
+  // authorized — so the LLM gets a "需要用户授权" message and markRetry('done')
+  // records a false success. Deriving asUser here (instead of via
+  // toolCtxExtras) also fixes the trigger path, whose authHooks were
+  // previously inert for --as user calls.
+  const [authRow] = await workerDb
+    .select()
+    .from(agentSchema.agentUserAuth)
+    .where(eq(agentSchema.agentUserAuth.agentId, feishuAgentId))
+    .limit(1);
+  const asUser = authRow?.status === 'authorized' || authRow?.status === 'incremental_awaiting';
 
   // Build the SAME full system prompt the message path uses (lark guide +
   // time + tool discipline + memory) + an optional triggered-run block telling the
@@ -147,8 +162,8 @@ export async function runProactiveTurn(args: {
     policy: resolveLoopPolicy(llmRow),
     // No onInterim — proactive turns have no user watching in real time.
     toolCtx: {
-      profile: agentRow.larkCliProfile,
-      appId: agentRow.appId,
+      profile: feishuProfile,
+      appId: feishuAppId,
       agentId: agentRow.id,
       ownerId,
       chatId: args.chatId,
